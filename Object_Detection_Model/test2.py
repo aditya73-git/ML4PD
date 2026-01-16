@@ -3,6 +3,7 @@ import cv2
 from ultralytics import YOLO
 import os
 
+
 def detect_two_images(model_path, img1_path, img2_path,
                       out1_path="output1.jpg", out2_path="output2.jpg"):
     """
@@ -51,7 +52,7 @@ def detect_two_images(model_path, img1_path, img2_path,
         # Save
         cv2.imwrite(output_path, drawn)
 
-        return (cx, cy, w, h), output_path
+        return (cx_pix, cy_pix), output_path
 
     # Process both images
     bbox1, saved1 = process_single_image(img1_path, out1_path)
@@ -59,16 +60,13 @@ def detect_two_images(model_path, img1_path, img2_path,
 
     return (bbox1, saved1), (bbox2, saved2)
 
-result1, result2 = detect_two_images(
-    model_path="runs/detect/train/weights/best.pt",
-    img1_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/frame_08093.jpg",
-    img2_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/frame_08101.jpg",
-    out1_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/detected_test1.jpg",
-    out2_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/detected_test2.jpg"
-)
 
-print("Image 1 normalized bbox:", result1[0])
-print("Saved image 1:", result1[1])
-
-print("Image 2 normalized bbox:", result2[0])
-print("Saved image 2:", result2[1])
+if __name__ == "__main__":
+    result1, result2 = detect_two_images(
+        model_path="runs/detect/train/weights/best.pt",
+        img1_path="...",
+        img2_path="...",
+        out1_path="...",
+        out2_path="..."
+    )
+    print(result1, result2)
