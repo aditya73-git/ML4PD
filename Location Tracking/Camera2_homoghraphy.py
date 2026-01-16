@@ -2,13 +2,13 @@ import cv2
 import numpy as np
 
 # Target paper dimensions (cm)
-TARGET_SIZE = 60.0
+TARGET_SIZE = 0.6
 
 world_pts = np.array([
-    [-30, -30],   # bottom-left
-    [30, -30],   # bottom-right
-    [30,  30],   # top-right
-    [-30,  30]    # top-left
+    [-0.3, -0.3],   # bottom-left
+    [0.3, -0.3],   # bottom-right
+    [0.3,  0.3],   # top-right
+    [-0.3,  0.3]    # top-left
 ], dtype=np.float32)
 
 image_pts = []

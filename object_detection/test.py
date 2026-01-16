@@ -63,10 +63,10 @@ def detect_two_images(model_path, img1_path, img2_path,
 
 result1, result2 = detect_two_images(
     model_path="runs/detect/train/weights/best.pt",
-    img1_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/frame_08093.jpg",
-    img2_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/frame_08101.jpg",
-    out1_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/detected_test1.jpg",
-    out2_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/detected_test2.jpg"
+    img1_path="C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/Object_Detection_Model/test images/frame_08093.jpg",
+    img2_path="C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/Object_Detection_Model/test images/frame_08101.jpg",
+    out1_path="C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/Object_Detection_Model/test images/detected_test1.jpg",
+    out2_path="C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/Object_Detection_Model/test images/detected_test2.jpg"
 )
 
 print("Image 1 normalized bbox:", result1[0])

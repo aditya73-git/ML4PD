@@ -1,8 +1,16 @@
+import os
+import sys
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from object_detection.test2 import detect_two_images
 import glob
 import numpy as np
 import cv2
-from Object_Detection_Model.test2 import detect_two_images
+from ultralytics import YOLO
+
 
 CHECKERBOARD = (10, 7)       # inner corners
 SQUARE_SIZE = 0.015         # meters
@@ -11,14 +19,14 @@ SQUARE_SIZE = 0.015         # meters
 # Camera 1 (already valid)
 cam1 = np.load(
     "C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/cam1_calib.npz")
-K1 = cam1["K"]
-D1 = cam1["D"]
+K1 = cam1["mtx"]
+D1 = cam1["dist"]
 
 # Camera 2 pre-zoom
 cam2 = np.load(
     "C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/cam2_calib.npz")
-K2_pre = cam2["K"]
-D2 = cam2["D"]
+K2_pre = cam2["mtx"]
+D2 = cam2["dist"]
 
 # Homographies
 H2_pre = np.load(
@@ -37,6 +45,12 @@ print("Estimated focal scale:", scale)
 K2_post = K2_pre.copy()
 K2_post[0, 0] *= scale   # fx
 K2_post[1, 1] *= scale   # fy
+
+scale_correction = 12.0  # estimated from table size comparison
+
+K2_post[0, 0] *= scale_correction
+K2_post[1, 1] *= scale_correction
+
 
 print("Camera 2 post-zoom intrinsics:\n", K2_post)
 
@@ -77,9 +91,17 @@ def projection_matrix(K, rvec, tvec):
 P1 = projection_matrix(K1, rvec1, tvec1)
 P2 = projection_matrix(K2_post, rvec2, tvec2)
 
-detections_cam1 = {frame_id: (u1, v1)}
-detections_cam2 = {frame_id: (u2, v2)}
 
+(pt1, _), (pt2, _) = detect_two_images(
+   model_path="runs/detect/train/weights/best.pt",
+   img1_path="C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/Location Tracking/Test_images/frame_07610.jpg",
+   img2_path="C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/Location Tracking/Test_images/frame_07743.jpg",
+   out1_path="detected_cam1.jpg",
+   out2_path="detected_cam2.jpg"
+)
+
+print("Cam1 pixel center:", pt1)
+print("Cam2 pixel center:", pt2)
 
 def triangulate_point(P1, P2, pt1, pt2):
     pt1 = np.array(pt1).reshape(2, 1).astype(float)
@@ -89,21 +111,5 @@ def triangulate_point(P1, P2, pt1, pt2):
     X = X_h[:3] / X_h[3]
     return X.flatten()
 
-
-trajectory = []
-
-for frame_id in sorted(detections_cam1.keys()):
-    if frame_id not in detections_cam2:
-        continue
-
-    pt1 = detections_cam1[frame_id]
-    pt2 = detections_cam2[frame_id]
-
-    X = triangulate_point(P1, P2, pt1, pt2)
-    trajectory.append(X)
-
-trajectory = np.array(trajectory)
-
-trajectory[:, 0]  # X (meters)
-trajectory[:, 1]  # Y (meters)
-trajectory[:, 2]  # Z (meters)
+X = triangulate_point(P1, P2, pt1, pt2)
+print("Triangulated 3D position (meters):", X)
