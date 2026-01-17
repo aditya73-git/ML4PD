@@ -1,3 +1,36 @@
+### Python ###
+# Virtual environment folders (essential to ignore)
+.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode (compiled files that aren't needed in the repo)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution and packaging files
+dist/
+build/
+*.egg-info/
+
+### IDE / Editors ###
+# VS Code specific settings
+.vscode/
+# PyCharm specific settings
+.idea/
+
+### Operating System ###
+# Windows temporary files
+Thumbs.db
+desktop.ini
+# macOS temporary files
+.DS_Store
+
+# Ignore the requirements file
+requirements.txt
+
 # ---- Calibration checkerboard images ----
 Location Tracking/Checkerboard_frames_cam1/
 Location Tracking/Checkerboard_frames_cam2/
