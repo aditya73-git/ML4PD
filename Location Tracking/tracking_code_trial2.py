@@ -18,21 +18,21 @@ SQUARE_SIZE = 0.015         # meters
 
 # Camera 1 (already valid)
 cam1 = np.load(
-    "C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/cam1_calib.npz")
+    "cam1_calib.npz")
 K1 = cam1["mtx"]
 D1 = cam1["dist"]
 
 # Camera 2 pre-zoom
 cam2 = np.load(
-    "C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/cam2_calib.npz")
+    "cam2_calib.npz")
 K2_pre = cam2["mtx"]
 D2 = cam2["dist"]
 
 # Homographies
 H2_pre = np.load(
-    "C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/cam2_homography_prezoom.npy")
+    "cam2_homography_prezoom.npy")
 H2_post = np.load(
-    "C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/cam2_homography.npy")
+    "cam2_homography.npy")
 
 H_tilde = np.linalg.inv(K2_pre) @ H2_post @ np.linalg.inv(H2_pre)
 
@@ -94,8 +94,8 @@ P2 = projection_matrix(K2_post, rvec2, tvec2)
 
 (pt1, _), (pt2, _) = detect_two_images(
    model_path="runs/detect/train/weights/best.pt",
-   img1_path="C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/Location Tracking/Test_images/frame_07610.jpg",
-   img2_path="C:/Users/LEGION7/OneDrive/Desktop/PERSONAL/TUM/Semester 1/Machine Learning for Product Development/ML4PD/Location Tracking/Test_images/frame_07743.jpg",
+   img1_path="Location Tracking/Test_images/frame_07610.jpg",
+   img2_path="Location Tracking/Test_images/frame_07743.jpg",
    out1_path="detected_cam1.jpg",
    out2_path="detected_cam2.jpg"
 )
@@ -111,5 +111,10 @@ def triangulate_point(P1, P2, pt1, pt2):
     X = X_h[:3] / X_h[3]
     return X.flatten()
 
-X = triangulate_point(P1, P2, pt1, pt2)
-print("Triangulated 3D position (meters):", X)
+# X = triangulate_point(P1, P2, pt1, pt2)
+# print("Triangulated 3D position (meters):", X)
+
+if __name__ == "__main__":
+    (pt1, _), (pt2, _) = detect_two_images(...)
+    X = triangulate_point(P1, P2, pt1, pt2)
+    print("Triangulated 3D position:", X)
