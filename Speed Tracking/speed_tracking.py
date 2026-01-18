@@ -55,11 +55,7 @@ def get_ground_truth_velocity(df):
 
     return df
 
-<<<<<<< HEAD
-    # Apply the calculation to our dataset
-=======
 # Apply the calculation to our dataset
->>>>>>> temp-video-tracking
 df = get_ground_truth_velocity(df)
 
 # Show the results for verification
