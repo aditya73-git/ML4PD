@@ -105,10 +105,6 @@ df = get_current_velocity(df)
 # Show the results for verification
 print("Measured Velocities calculated (Task 5b):")
 print(df[['throw_id', 't', 'vel_x_measured', 'vel_y_measured', 'vel_z_measured']].head())
-<<<<<<< HEAD
-
-=======
->>>>>>> temp-video-tracking
 # Plot measured velocities for throw_id = i and superimpose with ground truth
 throw_id = 26
 data_throw = df[df['throw_id'] == throw_id]
@@ -119,11 +115,7 @@ vel_z_gt = data_throw['vel_z_ground_truth'].values
 vel_x_meas = data_throw['vel_x_measured'].values
 vel_y_meas = data_throw['vel_y_measured'].values
 vel_z_meas = data_throw['vel_z_measured'].values
-<<<<<<< HEAD
-plt.figure(figsize=(12, 8))
-=======
 plt.figure(1, figsize=(12, 8))
->>>>>>> temp-video-tracking
 plt.subplot(3, 1, 1)
 plt.plot(t, vel_x_meas, 'b-', label='Measured Velocity X')
 plt.plot(t, vel_x_gt, 'r--', label='Ground Truth Velocity X')
@@ -143,27 +135,12 @@ plt.xlabel('Time (s)')
 plt.ylabel('Velocity Z (m/s)')
 plt.legend()
 plt.tight_layout()
-<<<<<<< HEAD
-plt.show()
-
-# %% 5c) Error Quantification & Final Export
-=======
 
 # %% 5c) Error Quantification
->>>>>>> temp-video-tracking
 # Calculate Absolute Error for each axis at every frame
 for axis in ['x', 'y', 'z']:
     df[f'v_err_{axis}'] = np.abs(df[f'vel_{axis}_ground_truth'] - df[f'vel_{axis}_measured'])
 
-<<<<<<< HEAD
-# Print the Global Mean Absolute Error (MAE) for the report
-print("\n--- Global Performance Summary (MAE) ---")
-print(df[['v_err_x', 'v_err_y', 'v_err_z']].mean())
-
-# Export the final dataset
-df.to_csv(OUTPUT_CSV, index=False)
-print(f"\nFile '{OUTPUT_CSV}' exported successfully.")
-=======
 # Compute MAE, RMSE, Max Error for all throws and axes
 print("\n" + "="*80)
 print(f"{'VELOCITY ERROR ANALYSIS (Finite Differences)':^80}")
@@ -446,7 +423,7 @@ for i, axis in enumerate(axes):
 
     print(f"Axis {axis.upper()}: WMA Improvement = {imp_wma:.2f}%, Sliding Polyfit Improvement = {imp_slpoly:.2f}%")
 
-# %% Export Final Dataset (Optimized with Sliding Polyfit)
+# %% Export Final Dataset (with Sliding Polyfit)
 
 # Define columns to keep from original tracking
 export_cols = ['throw_id', 't', 'x_raw', 'y_raw', 'z_raw', 'coeff_x_1', 'coeff_x_0', 'coeff_y_1', 'coeff_y_0',
@@ -468,4 +445,3 @@ print(f"Dataset exported to: {OUTPUT_CSV}")
 print(f"Final columns: {df_final.columns.tolist()}")
 
 plt.show()
->>>>>>> temp-video-tracking
