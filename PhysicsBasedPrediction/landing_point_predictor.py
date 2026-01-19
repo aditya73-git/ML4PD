@@ -4,6 +4,7 @@
 from sys import prefix
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import landing_point_plotter as plotter
 
 # Input and output path and folders
@@ -12,6 +13,9 @@ SPEED_DATA_CSV = "Speed Tracking/beer_pong_velocity_output.csv"
 OUTPUT_FOLDER = "PhysicsBasedPrediction"
 OUTPUT_DATA_CSV = "landing_point_prediction.csv"
 IMPACT_DATA_CSV = "Labelling/impact_log.csv"
+
+# Enable interactive plotting
+#plt.ion()
 
 # Load dataset 
 
@@ -120,8 +124,18 @@ print("Physics based prediction (Task 6a):")
 print(df[['throw_id', 't', 'x_land_pred', 'y_land_pred', 't_to_land_pred','t_to_land_grand_truth', 'x_land_grand_truth', 'y_land_grand_truth']].head(30))
 
 # Figure tests for throw 1
-plotter.plot_landing_points_for_throw(df, impact_log, throw_id=1,  output_folder=None, show=True )
+plotter.plot_landing_points_for_throw(df, impact_log, throw_id=1, output_folder=None, show=True )
+plotter.plot_landing_points_for_throw(df, impact_log, throw_id=2, output_folder=None, show=True )
+plotter.plot_landing_points_for_throw(df, impact_log, throw_id=3, output_folder=None, show=True )
+plotter.plot_landing_points_for_throw(df, impact_log, throw_id=4, output_folder=None, show=True )
+
 plotter.plot_landing_error_over_time_for_throw(df, impact_log, throw_id=1,  output_folder=None, show=True )
+plotter.plot_impact_log_data(df, impact_log, output_folder=None, show=True )
+
+plotter.plot_landing_error_all_throws(df, impact_log,output_folder=None, show=True )
+plotter.plot_systematic_offset(df, impact_log, output_folder=None, show=True )
+
+plt.show()
 
 df.to_csv(OUTPUT_DATA_CSV, index=False)
 print(f"\nFile '{OUTPUT_DATA_CSV}' exported successfully.")
