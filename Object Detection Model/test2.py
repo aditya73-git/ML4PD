@@ -1,21 +1,20 @@
+# Youssef Ibrahim - go52xac - 03804537
+
+# This file "test2.py" was created to modify "test.py" to be able to integrate with the Location Tracking 
+
 # pyright: reportPrivateImportUsage=false
 import cv2
 from ultralytics import YOLO
 import os
 
-
-def detect_two_images(model_path, img1_path, img2_path,
-                      out1_path="output1.jpg", out2_path="output2.jpg"):
-    """
-    Detect a ping-pong ball in two images using YOLOv8.
-    Returns normalized YOLO xywh for both images
-    and saves the images with bounding boxes drawn.
-    """
+def detect_two_images(model_path, img1_path, img2_path, out1_path="output1.jpg", out2_path="output2.jpg"):
+    # Creating a function that detects a ping-pong ball in two images using YOLOv8.
+    # Returns normalized YOLO xywh for both images and saves the images with bounding boxes drawn.
 
     # Load model once
     model = YOLO(model_path)
 
-    # Helper to process a single image
+    # Helper function to process a single image
     def process_single_image(image_path, output_path):
         img = cv2.imread(image_path)
         if img is None:
@@ -33,7 +32,7 @@ def detect_two_images(model_path, img1_path, img2_path,
         # Get YOLO normalized bounding box (cx, cy, w, h) in 0–1 range
         cx, cy, w, h = results.boxes.xywhn[0].cpu().numpy()
 
-        # Convert normalized → pixel coordinates for drawing
+        # Convert normalized to pixel coordinates for drawing
         cx_pix = int(cx * W)
         cy_pix = int(cy * H)
         w_pix = int(w * W)

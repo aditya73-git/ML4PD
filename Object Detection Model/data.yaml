@@ -1,5 +1,12 @@
+# Youssef Ibrahim - go52xac - 03804537
+
+# Path to the training images folder
 train: train/images
+# Path to the validation images folder
 val: val/images
 
+# Number of object classes in the dataset (only one)
 nc: 1
+
+# List of class names where Class ID 0 is "ping-pong ball"
 names: ["ping-pong ball"]
