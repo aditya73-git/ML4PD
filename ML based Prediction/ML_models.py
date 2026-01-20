@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Custom plotting functions for visualizing results and covariance evolution
-from Plots import plot_logo_validation_results, plot_realtime_axis_convergence
+from Plots import plot_logo_validation_results, plot_realtime_axis_convergence, plot_feature_hist
 from Plots import plot_gp_correlation_matrix, animate_gp_covariance_evolution, plot_gp_posterior_grid
 
 # Scikit-Learn tools for building the ML pipeline
@@ -167,7 +167,12 @@ test_throw_ids = []
 gpr_preds_x, gpr_preds_y = [], []
 gb_preds_x, gb_preds_y = [], []
 true_x_all, true_y_all = [], []
+std_x_gpr, std_y_gpr = [], []
 K_x_matrix, K_y_matrix = [], []
+
+from collections import Counter
+x_feat_counter = Counter()
+y_feat_counter = Counter()
 
 print("\nRunning Leave-One-Group-Out Validation...")
 
@@ -184,6 +189,16 @@ for train_idx, test_idx in logo.split(X, y_x, groups=groups):
     gpr_x_model.fit(X_train, yx_train)
     gpr_y_model.fit(X_train, yy_train)
     
+    # 1. Get Selected Features for X
+    mask_x = gpr_x_model.named_steps["select"].get_support()
+    feats_x = X.columns[mask_x]
+    x_feat_counter.update(feats_x) # Update counts
+    
+    # 2. Get Selected Features for Y
+    mask_y = gpr_y_model.named_steps["select"].get_support()
+    feats_y = X.columns[mask_y]
+    y_feat_counter.update(feats_y) # Update counts
+    
     # (Optional) Save Covariance Matrices for later animation
     Kx = extract_gp_covariance(gpr_x_model, X_train)
     Ky = extract_gp_covariance(gpr_y_model, X_train)
@@ -195,8 +210,8 @@ for train_idx, test_idx in logo.split(X, y_x, groups=groups):
     gb_y_model.fit(X_train, yy_train)
     
     # Predict the landing point for the unseen throw
-    px_g = gpr_x_model.predict(X_test)
-    py_g = gpr_y_model.predict(X_test)
+    px_g, std_x = gpr_x_model.predict(X_test, return_std = True)
+    py_g, std_y = gpr_y_model.predict(X_test, return_std = True)
     
     px_b = gb_x_model.predict(X_test)
     py_b = gb_y_model.predict(X_test)
@@ -204,6 +219,8 @@ for train_idx, test_idx in logo.split(X, y_x, groups=groups):
     # Store predictions to calculate global error later
     gpr_preds_x.append(px_g[0])
     gpr_preds_y.append(py_g[0])
+    std_x_gpr.append(std_x[0])
+    std_y_gpr.append(std_y[0])
     gb_preds_x.append(px_b[0])
     gb_preds_y.append(py_b[0])
     true_x_all.append(yx_test[0])
@@ -236,6 +253,9 @@ results_df = pd.DataFrame({
 results_df.to_csv("model_predictions_comparison.csv", index=False)
 print("Results saved to 'model_predictions_comparison.csv'")
 
+plot_feature_hist(x_feat_counter, "X_Axis")
+plot_feature_hist(y_feat_counter, "Y_Axis")
+
 rmse_gpr = np.sqrt(np.mean(err_gpr**2))
 rmse_gb = np.sqrt(np.mean(err_gb**2))
 
@@ -247,7 +267,8 @@ print("------------------------------------------------")
 plot_logo_validation_results(
     true_x_all, true_y_all, 
     gpr_preds_x, gpr_preds_y, 
-    gb_preds_x, gb_preds_y
+    gb_preds_x, gb_preds_y,
+    std_x_gpr, std_y_gpr
 )
 
 # i = 5
@@ -278,10 +299,11 @@ plot_logo_validation_results(
 #     save_path="gp_covariance_y_evolution.gif"
 # )
 
+
 # --------------------------------------------------
 # 6. VISUALIZATION (Real-Time Simulation)
 # --------------------------------------------------
-# We simulate a "Live" scenario using Throw ID 16.
+# We simulate a "Live" scenario using Throw ID 16 or 5.
 # The model sees Frame 1... then Frame 2... then Frame 3... updating its prediction.
 VISUALIZE_ID = 5
 print(f"\nGenerating Absolute Position Plot for Throw {VISUALIZE_ID}...")
@@ -304,9 +326,8 @@ true_x_cm = impact_row["X_cm"].values[0]
 true_y_cm = impact_row["Y_cm"].values[0]
 
 timeline = []
-pred_x_gpr, std_x_gpr, pred_x_gb = [], [], []
-pred_y_gpr, std_y_gpr, pred_y_gb = [], [], []
-
+pred_x_gpr, pred_std_x_gpr, pred_x_gb = [], [], []
+pred_y_gpr, pred_std_y_gpr, pred_y_gb = [], [], []
 # 3. REAL-TIME LOOP: Feed data incrementally
 for i in range(5, len(throw_df)):
     sub = throw_df.iloc[:i] # "What the camera has seen so far"
@@ -326,19 +347,21 @@ for i in range(5, len(throw_df)):
     
     # Convert meters to cm for visualization
     pred_x_gpr.append(pxg[0] * 100)
-    std_x_gpr.append(sx[0] * 100)
+    pred_std_x_gpr.append(sx[0] * 100)
     pred_x_gb.append(pxb[0] * 100)
     
     pred_y_gpr.append(pyg[0] * 100)
-    std_y_gpr.append(sy[0] * 100)
+    pred_std_y_gpr.append(sy[0] * 100)
     pred_y_gb.append(pyb[0] * 100)
+    
 
 # 4. Plot the "Cone of Convergence"
 plot_realtime_axis_convergence(timeline,
-    pred_x_gpr, std_x_gpr, pred_x_gb,
-    pred_y_gpr, std_y_gpr, pred_y_gb,
+    pred_x_gpr, pred_std_x_gpr, pred_x_gb,
+    pred_y_gpr, pred_std_y_gpr, pred_y_gb,
     true_x_cm, true_y_cm, VISUALIZE_ID)
 
+    
 # import joblib
 
 # print("\n------------------------------------------------")
