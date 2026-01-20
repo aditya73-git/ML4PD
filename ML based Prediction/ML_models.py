@@ -1,173 +1,367 @@
 import pandas as pd
 import numpy as np
-from sklearn.base import clone
+import matplotlib.pyplot as plt
 
-# Import custom plot modules
-from Plots import plot_throw_predictions as plot1
-from Plots import plot_throw_trajectory as plot2
+# Custom plotting functions for visualizing results and covariance evolution
+from Plots import plot_logo_validation_results, plot_realtime_axis_convergence
+from Plots import plot_gp_correlation_matrix, animate_gp_covariance_evolution, plot_gp_posterior_grid
 
-# ML Libraries
-from sklearn.model_selection import LeaveOneOut
-from sklearn.preprocessing import StandardScaler
+# Scikit-Learn tools for building the ML pipeline
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import WhiteKernel, Matern
+from sklearn.gaussian_process.kernels import Matern, WhiteKernel
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.feature_selection import SelectKBest, f_regression
+from sklearn.base import clone
+from sklearn.model_selection import LeaveOneGroupOut
 
 # --------------------------------------------------
-# 1. Load data
+# 1. SETUP & DATA LOADING
 # --------------------------------------------------
-vel = pd.read_csv("beer_pong_velocity_output.csv")
-impact = pd.read_csv("impact_log.csv")
+# Load raw velocity data (trajectory frames) and impact logs (ground truth landing spots)
+vel = pd.read_csv(r"ML4PD/Speed Tracking/beer_pong_velocity_output.csv")
+impact = pd.read_csv(r"ML4PD/Labelling/impact_log.csv")
 
-# Align throws (Impact IDs 21-50 map to Velocity IDs 1-30)
+# DATA ALIGNMENT:
+# The recording hardware started counting at different indices.
+# Velocity IDs 1-30 correspond to Impact IDs 21-50. We sync them here.
 impact["throw_id"] = impact["ID"] - 20
+
+# Convert target coordinates from cm to meters for numerical stability in the model
 impact["target_x_m"] = impact["X_cm"] / 100.0
 impact["target_y_m"] = impact["Y_cm"] / 100.0
 
-# --------------------------------------------------
-# 2. Advanced Feature Engineering
-# --------------------------------------------------
+# PHYSICS CALCULATION:
+# Compute total velocity magnitude (speed) combining x, y, z vectors.
+# This represents the total kinetic energy of the throw.
 vel["vel_mag"] = np.sqrt(vel["vel_x_measured"]**2 + vel["vel_y_measured"]**2 + vel["vel_z_measured"]**2)
 
-agg_rules = {
-    "t": [lambda x: x.max() - x.min()], # Duration
-    "coeff_x_1": "first", "coeff_x_0": "first",
-    "coeff_y_1": "first", "coeff_y_0": "first",
-    "coeff_z_2": "first", "coeff_z_1": "first", "coeff_z_0": "first",
-    "x_raw": ["first", "last", "std"],
-    "y_raw": ["first", "last", "std"],
-    "z_raw": ["first", "last", "std"],
-    "vel_x_measured": ["mean", "last", "std"],
-    "vel_y_measured": ["mean", "last", "std"],
-    "vel_z_measured": ["mean", "last", "std"],
-    "vel_mag": ["mean", "max", "last"]
-}
+# --------------------------------------------------
+# 2. FEATURE ENGINEERING
+# --------------------------------------------------
+def get_features(df_partial):
+    """
+    Summarizes a sequence of trajectory frames into a single feature vector.
+    
+    Inputs:
+        df_partial: DataFrame containing frames 0 to t (current time)
+    Returns:
+        pd.Series of kinematic features (Velocity, Position, Duration, Stability)
+    """
+    res = {}
+    
+    # 1. TEMPORAL PHYSICS: Time of flight is a key driver for lateral drift (Y-axis error).
+    res["duration"] = df_partial["t"].max() - df_partial["t"].min()
+    
+    # 2. POSITION STATS: Where is the ball now? Where did it start?
+    # 'last' = current state, 'first' = release point.
+    for ax in ["x", "y", "z"]:
+        col = f"{ax}_raw"
+        res[f"{col}_first"] = df_partial[col].iloc[0]
+        res[f"{col}_last"] = df_partial[col].iloc[-1]
+        
+        # 'std' captures wobble/instability in the flight path.
+        res[f"{col}_std"] = df_partial[col].std() if len(df_partial) > 1 else 0.0
 
-agg = vel.groupby("throw_id").agg(agg_rules)
-agg.columns = [f"{c[0]}_{c[1]}" if isinstance(c, tuple) else c for c in agg.columns]
-agg = agg.rename(columns={"t_<lambda_0>": "duration"})
-agg = agg.reset_index()
-
-# Merge
-df = agg.merge(impact[["throw_id", "target_x_m", "target_y_m"]], on="throw_id", how="inner")
-
-X = df.drop(columns=["throw_id", "target_x_m", "target_y_m"])
-y_x = df["target_x_m"]
-y_y = df["target_y_m"]
-
-print(f"Dataset: {X.shape[0]} samples, {X.shape[1]} features")
+    # 3. VELOCITY STATS: How fast is it moving?
+    for ax in ["x", "y", "z"]:
+        col = f"vel_{ax}_measured"
+        res[f"{col}_mean"] = df_partial[col].mean() # Smooths out sensor noise
+        res[f"{col}_last"] = df_partial[col].iloc[-1] # Instantaneous velocity
+        res[f"{col}_std"] = df_partial[col].std() if len(df_partial) > 1 else 0.0
+        
+    # 4. ENERGY STATS: Total energy determines depth (X-axis distance).
+    res["vel_mag_mean"] = df_partial["vel_mag"].mean()
+    res["vel_mag_max"] = df_partial["vel_mag"].max()
+    res["vel_mag_last"] = df_partial["vel_mag"].iloc[-1]
+    
+    return pd.Series(res)
 
 # --------------------------------------------------
-# 3. Model Definition
+# 3. DATASET PREPARATION
 # --------------------------------------------------
-feature_selector = SelectKBest(score_func=f_regression, k=10)
+data_rows = []
+targets_x = []
+targets_y = []
+groups = []
 
+# Loop through every unique throw to create "Whole Trajectory" training examples.
+# Note: For the main training loop, we use the *full* flight path to train the final outcome.
+for tid in vel["throw_id"].unique():
+    full_throw = vel[vel["throw_id"] == tid].sort_values("t")
+    tgt = impact[impact["throw_id"] == tid]
+    
+    if len(tgt) == 0: continue
+    
+    feats = get_features(full_throw)
+    data_rows.append(feats)
+    
+    # We train two separate models: one for Depth (X) and one for Lateral (Y)
+    targets_x.append(tgt["target_x_m"].values[0])
+    targets_y.append(tgt["target_y_m"].values[0])
+    groups.append(tid)
+
+X = pd.DataFrame(data_rows)
+y_x = np.array(targets_x)
+y_y = np.array(targets_y)
+groups = np.array(groups)
+
+print(f"Data Prepared: {X.shape[0]} throws.")
+
+# --------------------------------------------------
+# 4. MODEL DEFINITIONS
+# --------------------------------------------------
+# KERNEL DESIGN:
+# 1. Matern: General purpose kernel that handles non-linear physical relationships well.
+# 2. WhiteKernel: Explicitly models noise. This tells the GPR: "Data isn't perfect, expect variance."
+#    Lowered bound to 1e-9 to prevent convergence warnings on clean data.
 kernel = 1.0 * Matern(length_scale=1.0, nu=2.5) + \
-         WhiteKernel(noise_level=1e-4, noise_level_bounds=(1e-10, 1e-1))
+         WhiteKernel(noise_level=1e-4, noise_level_bounds=(1e-9, 1e-1))
 
-# Define Base Pipelines
-gpr_pipeline_base = Pipeline([
+# PIPELINE ARCHITECTURE:
+# 1. Standardize: Scale inputs so features with large units (like Velocity) don't dominate.
+# 2. SelectKBest: AUTOMATIC PHYSICS SELECTION.
+#    - X-model will pick Energy/Speed features.
+#    - Y-model will pick Duration/Drift features.
+# 3. GPR: The actual predictor.
+gpr_base = Pipeline([
     ("scaler", StandardScaler()),
-    ("select", feature_selector),
-    ("gpr", GaussianProcessRegressor(
-        kernel=kernel, 
-        n_restarts_optimizer=5, 
-        normalize_y=True, 
-        random_state=42
-    ))
+    ("select", SelectKBest(f_regression, k=15)),
+    ("gpr", GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=2, random_state=42))
 ])
 
-gb_pipeline_base = Pipeline([
-    ("select", feature_selector),
-    ("gb", GradientBoostingRegressor(
-        n_estimators=500, learning_rate=0.01, max_depth=2, subsample=0.9, random_state=42
-    ))
+# BASELINE MODEL:
+# Gradient Boosting is used to compare accuracy against GPR.
+# GPR is preferred for "Uncertainty," but GB is usually a strong benchmark for "Accuracy."
+gb_base = Pipeline([
+    ("select", SelectKBest(f_regression, k=15)),
+    ("gb", GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=42))
 ])
 
-# Clone for X and Y specific usage
-gpr_pipeline_x = clone(gpr_pipeline_base)
-gpr_pipeline_y = clone(gpr_pipeline_base)
-gb_pipeline_x = clone(gb_pipeline_base)
-gb_pipeline_y = clone(gb_pipeline_base)
+# Clone base pipelines for X and Y axes (they need to be trained independently)
+gpr_x_model, gpr_y_model = clone(gpr_base), clone(gpr_base)
+gb_x_model, gb_y_model = clone(gb_base), clone(gb_base)
+
+def extract_gp_covariance(pipeline, X_train):
+   # """Helper to extract the internal covariance matrix for visualization."""
+    scaler = pipeline.named_steps["scaler"]
+    selector = pipeline.named_steps["select"]
+    gpr = pipeline.named_steps["gpr"]
+
+    X_t = scaler.transform(X_train)
+    X_t = selector.transform(X_t)
+
+    K = gpr.kernel_(X_t)
+    return 0.5 * (K + K.T)  # enforce symmetry
 
 # --------------------------------------------------
-# 4. Rigorous Evaluation (Leave-One-Out Cross-Validation)
+# 5. LEAVE-ONE-GROUP-OUT CROSS VALIDATION (RMSE)
 # --------------------------------------------------
-loo = LeaveOneOut()
+# STRATEGY:
+# We must test on a *completely new throw* (Group), not just random frames.
+# This prevents "Data Leakage" where the model memorizes a specific throw's path.
+logo = LeaveOneGroupOut()
 
-# Containers for metrics
-errors_gpr = []
-errors_gb = []
+test_throw_ids = []
+gpr_preds_x, gpr_preds_y = [], []
+gb_preds_x, gb_preds_y = [], []
+true_x_all, true_y_all = [], []
+K_x_matrix, K_y_matrix = [], []
 
-# Containers for Plotting (Initialize these!)
-px_gpr_all, py_gpr_all = [], []
-px_gb_all, py_gb_all = [], []
-std_x_all, std_y_all = [], []
+print("\nRunning Leave-One-Group-Out Validation...")
 
-print("\nRunning Leave-One-Out Cross-Validation (30 folds)...")
-
-for train_idx, test_idx in loo.split(X):
+for train_idx, test_idx in logo.split(X, y_x, groups=groups):
+    # Split data: Hold out one specific throw ID for testing
     X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    yx_train, yx_test = y_x[train_idx], y_x[test_idx]
+    yy_train, yy_test = y_y[train_idx], y_y[test_idx]
     
-    # Get targets for this split
-    yx_train, yx_test = y_x.iloc[train_idx], y_x.iloc[test_idx]
-    yy_train, yy_test = y_y.iloc[train_idx], y_y.iloc[test_idx]
+    # Append the throw ID of the test group
+    test_throw_ids.append(groups[test_idx[0]])
     
-    # --- Gaussian Process (Fit & Predict) ---
-    gpr_pipeline_x.fit(X_train, yx_train)
-    px, std_x = gpr_pipeline_x.predict(X_test, return_std=True)
+    # Train GPR models
+    gpr_x_model.fit(X_train, yx_train)
+    gpr_y_model.fit(X_train, yy_train)
     
-    gpr_pipeline_y.fit(X_train, yy_train)
-    py, std_y = gpr_pipeline_y.predict(X_test, return_std=True)
+    # (Optional) Save Covariance Matrices for later animation
+    Kx = extract_gp_covariance(gpr_x_model, X_train)
+    Ky = extract_gp_covariance(gpr_y_model, X_train)
+    K_x_matrix.append(Kx)
+    K_y_matrix.append(Ky)
     
-    # Store Predictions
-    px_gpr_all.append(px[0])
-    py_gpr_all.append(py[0])
-    std_x_all.append(std_x[0])
-    std_y_all.append(std_y[0])
+    # Train Baseline (Gradient Boosting)
+    gb_x_model.fit(X_train, yx_train)
+    gb_y_model.fit(X_train, yy_train)
     
-    # --- Gradient Boosting (Fit & Predict) ---
-    gb_pipeline_x.fit(X_train, yx_train)
-    px_gb = gb_pipeline_x.predict(X_test)
+    # Predict the landing point for the unseen throw
+    px_g = gpr_x_model.predict(X_test)
+    py_g = gpr_y_model.predict(X_test)
     
-    gb_pipeline_y.fit(X_train, yy_train)
-    py_gb = gb_pipeline_y.predict(X_test)
+    px_b = gb_x_model.predict(X_test)
+    py_b = gb_y_model.predict(X_test)
     
-    px_gb_all.append(px_gb[0])
-    py_gb_all.append(py_gb[0])
-    
-    # --- Calculate Errors ---
-    sq_err_gpr = ((px[0] - yx_test.values[0])*100)**2 + ((py[0] - yy_test.values[0])*100)**2
-    errors_gpr.append(sq_err_gpr)
+    # Store predictions to calculate global error later
+    gpr_preds_x.append(px_g[0])
+    gpr_preds_y.append(py_g[0])
+    gb_preds_x.append(px_b[0])
+    gb_preds_y.append(py_b[0])
+    true_x_all.append(yx_test[0])
+    true_y_all.append(yy_test[0])
 
-    sq_err_gb = ((px_gb[0] - yx_test.values[0])*100)**2 + ((py_gb[0] - yy_test.values[0])*100)**2
-    errors_gb.append(sq_err_gb)
 
-# Calculate RMSE
-rmse_gpr = np.sqrt(np.mean(errors_gpr))
-rmse_gb  = np.sqrt(np.mean(errors_gb))
+# --- Metrics Calculation ---
+gpr_preds_x = np.array(gpr_preds_x)
+gpr_preds_y = np.array(gpr_preds_y)
+gb_preds_x = np.array(gb_preds_x)
+gb_preds_y = np.array(gb_preds_y)
+true_x_all = np.array(true_x_all)
+true_y_all = np.array(true_y_all)
 
-print("\nFINAL ROBUST RESULTS (LOOCV)")
-print("--------------------------------")
-print(f"Gaussian Process RMSE : {rmse_gpr:.2f} cm")
-print(f"Gradient Boosting RMSE: {rmse_gb:.2f} cm")
+# Calculate Euclidean Error (Hypotenuse of X-error and Y-error) in cm
+err_gpr = np.sqrt((gpr_preds_x - true_x_all)**2 + (gpr_preds_y - true_y_all)**2) * 100
+err_gb = np.sqrt((gb_preds_x - true_x_all)**2 + (gb_preds_y - true_y_all)**2) * 100
 
-# --------------------------------------------------
-# 5. Plotting
-# --------------------------------------------------
+# --- NEW: SAVE TO CSV ---
+results_df = pd.DataFrame({
+    "throw_id": test_throw_ids,
+    "true_x": true_x_all*100,
+    "true_y": true_y_all*100,
+    "gpr_pred_x": gpr_preds_x*100,
+    "gpr_pred_y": gpr_preds_y*100,
+    "gb_pred_x": gb_preds_x*100,
+    "gb_pred_y": gb_preds_y*100
+})
 
-# Plot 1: Overall Accuracy (Predicted vs True)
-plot1(
-    y_x.values, y_y.values,
-    np.array(px_gpr_all), np.array(py_gpr_all),
-    np.array(px_gb_all), np.array(py_gb_all),
-    std_x=np.array(std_x_all),  # Pass the collected uncertainty
-    std_y=np.array(std_y_all)
+results_df.to_csv("model_predictions_comparison.csv", index=False)
+print("Results saved to 'model_predictions_comparison.csv'")
+
+rmse_gpr = np.sqrt(np.mean(err_gpr**2))
+rmse_gb = np.sqrt(np.mean(err_gb**2))
+
+print("------------------------------------------------")
+print(f"TOTAL RMSE (Gaussian Process):  {rmse_gpr:.2f} cm")
+print(f"TOTAL RMSE (Gradient Boosting): {rmse_gb:.2f} cm")
+print("------------------------------------------------")
+
+plot_logo_validation_results(
+    true_x_all, true_y_all, 
+    gpr_preds_x, gpr_preds_y, 
+    gb_preds_x, gb_preds_y
 )
 
-# Plot 2: Trajectory Visualization (for the very last test throw)
-last_throw_id = df.iloc[test_idx[0]]["throw_id"]
-print(f"\nVisualizing Trajectory for Throw ID: {int(last_throw_id)}")
-plot2(last_throw_id, vel)
+# i = 5
+# plot_gp_correlation_matrix(
+#     K_x_matrix[i],
+#     title=f"GP Correlation Matrix (X-Axis) – Iteration {i+1}"
+# )
+# plot_gp_posterior_grid(
+#     gpr_model=gpr_x_model,
+#     X_train=X_train,
+#     feature_list=["x_raw_first", "x_raw_last", "vel_x_measured_mean", "y_raw_last", "duration", "vel_mag_mean"],
+#     n_points=100
+# )
+
+
+# print("Animating covarinece matirces")
+# print("------------------------------------------------")
+# animate_gp_covariance_evolution(
+#     K_x_matrix,
+#     axis_label="X",
+#     save_path="gp_covariance_x_evolution.gif"
+# )
+# K = K_x_matrix[0]
+# print("min:", K.min(), "max:", K.max(), "std:", K.std())
+# animate_gp_covariance_evolution(
+#     K_y_matrix,
+#     axis_label="Y",
+#     save_path="gp_covariance_y_evolution.gif"
+# )
+
+# --------------------------------------------------
+# 6. VISUALIZATION (Real-Time Simulation)
+# --------------------------------------------------
+# We simulate a "Live" scenario using Throw ID 16.
+# The model sees Frame 1... then Frame 2... then Frame 3... updating its prediction.
+VISUALIZE_ID = 5
+print(f"\nGenerating Absolute Position Plot for Throw {VISUALIZE_ID}...")
+
+# 1. Retrain on everything EXCEPT Throw 16 (Strict blind test)
+X_train_vis = X[groups != VISUALIZE_ID]
+yx_train_vis = y_x[groups != VISUALIZE_ID]
+yy_train_vis = y_y[groups != VISUALIZE_ID]
+
+gpr_x_model.fit(X_train_vis, yx_train_vis)
+gpr_y_model.fit(X_train_vis, yy_train_vis)
+gb_x_model.fit(X_train_vis, yx_train_vis)
+gb_y_model.fit(X_train_vis, yy_train_vis)
+
+# 2. Get the "Ground Truth" for Throw 16
+throw_df = vel[vel["throw_id"] == VISUALIZE_ID].sort_values("t")
+impact_row = impact[impact["throw_id"] == VISUALIZE_ID]
+# Extract the values (using .values[0] to get the scalar number)
+true_x_cm = impact_row["X_cm"].values[0]
+true_y_cm = impact_row["Y_cm"].values[0]
+
+timeline = []
+pred_x_gpr, std_x_gpr, pred_x_gb = [], [], []
+pred_y_gpr, std_y_gpr, pred_y_gb = [], [], []
+
+# 3. REAL-TIME LOOP: Feed data incrementally
+for i in range(5, len(throw_df)):
+    sub = throw_df.iloc[:i] # "What the camera has seen so far"
+    t_curr = sub["t"].values[-1]
+    ft = pd.DataFrame([get_features(sub)]) # Extract features from partial path
+    
+    # Predict with Uncertainty (return_std=True)
+    # This is the "Cone of Probability" narrowing down over time.
+    pxg, sx = gpr_x_model.predict(ft, return_std=True)
+    pyg, sy = gpr_y_model.predict(ft, return_std=True)
+    
+    # Baseline Prediction (Point estimate only)
+    pxb = gb_x_model.predict(ft)
+    pyb = gb_y_model.predict(ft)
+    
+    timeline.append(t_curr)
+    
+    # Convert meters to cm for visualization
+    pred_x_gpr.append(pxg[0] * 100)
+    std_x_gpr.append(sx[0] * 100)
+    pred_x_gb.append(pxb[0] * 100)
+    
+    pred_y_gpr.append(pyg[0] * 100)
+    std_y_gpr.append(sy[0] * 100)
+    pred_y_gb.append(pyb[0] * 100)
+
+# 4. Plot the "Cone of Convergence"
+plot_realtime_axis_convergence(timeline,
+    pred_x_gpr, std_x_gpr, pred_x_gb,
+    pred_y_gpr, std_y_gpr, pred_y_gb,
+    true_x_cm, true_y_cm, VISUALIZE_ID)
+
+# import joblib
+
+# print("\n------------------------------------------------")
+# print("TRAINING FINAL PRODUCTION MODELS...")
+# print("------------------------------------------------")
+
+# # 1. Define the Final Models (clones of your base pipelines)
+# final_gpr_x = clone(gpr_base)
+# final_gpr_y = clone(gpr_base)
+# final_gb_x  = clone(gb_base)
+# final_gb_y  = clone(gb_base)
+
+# # 2. Fit on the ENTIRE dataset (X contains all 30 throws)
+# final_gpr_x.fit(X, y_x)
+# final_gpr_y.fit(X, y_y)
+# final_gb_x.fit(X, y_x)
+# final_gb_y.fit(X, y_y)
+
+# # 3. Save to disk (.pkl files)
+# # These files will appear in your project folder
+# joblib.dump(final_gpr_x, 'beer_pong_gpr_x.pkl')
+# joblib.dump(final_gpr_y, 'beer_pong_gpr_y.pkl')
+# joblib.dump(final_gb_x,  'beer_pong_gb_x.pkl')
+# joblib.dump(final_gb_y,  'beer_pong_gb_y.pkl')
+
+# print("Success! Models saved to .pkl files.")
