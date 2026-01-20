@@ -92,7 +92,6 @@ def get_current_velocity(df):
 
             v_measured = np.zeros(len(group))
             v_measured[1:] = delta_pos / delta_t
-            v_measured[0] = v_measured[1]  # Initial frame velocity
 
             # Update df
             df.loc[group.index, f'vel_{axis}_measured'] = v_measured
@@ -116,6 +115,7 @@ vel_x_meas = data_throw['vel_x_measured'].values
 vel_y_meas = data_throw['vel_y_measured'].values
 vel_z_meas = data_throw['vel_z_measured'].values
 plt.figure(1, figsize=(12, 8))
+plt.suptitle(f"Velocity Estimation (Finite Difference) - Throw {throw_id}", fontsize=14)
 plt.subplot(3, 1, 1)
 plt.plot(t, vel_x_meas, 'b-', label='Measured Velocity X')
 plt.plot(t, vel_x_gt, 'r--', label='Ground Truth Velocity X')
@@ -169,7 +169,7 @@ for i, axis in enumerate(axes):
         plt.scatter(t_norm, group[f'v_err_{axis}'], color='gray', alpha=0.5, s=10)
     # Plot average trend
     plt.title(f"Axis {axis.upper()}")
-    plt.ylabel('Absolute Velocity Error (m/s)')
+    plt.ylabel('Absolute Error (m/s)')
     plt.grid(True, alpha=0.3)
 plt.xlabel('Normalized Time')
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -210,7 +210,6 @@ def get_velocity_wma(df, weights):
             dt = np.diff(t)
             dt[dt == 0] = 1e-6
             v[1:] = np.diff(pos_wma) / dt
-            v[0] = v[1]
 
             df.loc[group.index, f'vel_{axis}_wma'] = v
 
@@ -226,8 +225,9 @@ for i, axis in enumerate(axes):
     plt.subplot(3, 1, i+1)
     d_ex = df[df['throw_id'] == throw_id]
     plt.plot(d_ex['t'], d_ex[f'vel_{axis}_ground_truth'], 'r--', label='Ground Truth', linewidth=2)
-    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_wma'], 'b-', label='WMA Estimated', linewidth=1.5)
-    plt.ylabel(f'Vel {axis.upper()} (m/s)')
+    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_wma'], 'b-', label='WMA Estimation', linewidth=1.5)
+    plt.ylabel(f'Velocity {axis.upper()} (m/s)')
+    plt.xlabel('Time (s)')
     plt.legend(loc='upper right')
 plt.tight_layout()
 
@@ -263,7 +263,7 @@ for i, axis in enumerate(axes):
         plt.scatter(t_norm, group[f'v_err_{axis}_wma'], color='RoyalBlue', alpha=0.5, s=10)
     # Plot average trend
     plt.title(f"Axis {axis.upper()}")
-    plt.ylabel('Absolute Velocity Error (m/s)')
+    plt.ylabel('Absolute Error (m/s)')
     plt.grid(True, alpha=0.3)
 plt.xlabel('Normalized Time')
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -321,8 +321,9 @@ for i, axis in enumerate(axes):
     plt.subplot(3, 1, i+1)
     d_ex = df[df['throw_id'] == throw_id]
     plt.plot(d_ex['t'], d_ex[f'vel_{axis}_ground_truth'], 'r--', label='Ground Truth', linewidth=2)
-    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_slpoly'], 'b-', label='Sliding Polyfit Estimated', linewidth=1.5)
-    plt.ylabel(f'Vel {axis.upper()} (m/s)')
+    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_slpoly'], 'b-', label='Sliding Polyfit Estimation', linewidth=1.5)
+    plt.ylabel(f'Velocity {axis.upper()} (m/s)')
+    plt.xlabel('Time (s)')
     plt.legend(loc='upper right')
 plt.tight_layout()
 
@@ -357,7 +358,7 @@ for i, axis in enumerate(axes):
 
         plt.scatter(t_norm, group[f'v_err_{axis}_slpoly'], color='ForestGreen', alpha=0.5, s=10)
     plt.title(f"Axis {axis.upper()}")
-    plt.ylabel('Absolute Velocity Error (m/s)')
+    plt.ylabel('Absolute Error (m/s)')
     plt.grid(True, alpha=0.3)
 plt.xlabel('Normalized Time')
 plt.tight_layout()
@@ -371,14 +372,15 @@ for i, axis in enumerate(axes):
     plt.subplot(3, 1, i+1)
     d_ex = df[df['throw_id'] == throw_id]
     plt.plot(d_ex['t'], d_ex[f'vel_{axis}_ground_truth'], 'r--', label='Ground Truth', linewidth=2)
-    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_measured'], 'b-', label='Finite Differences', linewidth=1.5)
-    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_wma'], 'g-', label='WMA Estimated', linewidth=1.5)
-    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_slpoly'], 'm-', label='Sliding Polyfit Estimated', linewidth=1.5)
-    plt.ylabel(f'Vel {axis.upper()} (m/s)')
+    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_measured'], 'b-', label='Finite Difference Estimation', linewidth=1.5)
+    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_wma'], 'g-', label='WMA Estimation', linewidth=1.5)
+    plt.plot(d_ex['t'], d_ex[f'vel_{axis}_slpoly'], 'm-', label='Sliding Polyfit Estimation', linewidth=1.5)
+    plt.ylabel(f'Velocity {axis.upper()} (m/s)')
+    plt.xlabel('Time (s)')
     plt.legend(loc='upper right')
 plt.tight_layout()
 
-# Plot histograms of performance metrics for all methods
+# %% Plot histograms of performance metrics for all methods
 methods = ['measured', 'wma', 'slpoly']
 metrics_to_plot = ['MAE', 'RMSE', 'Max Error']
 axes_names = ['X', 'Y', 'Z']
@@ -387,7 +389,7 @@ plt.figure(8, figsize=(18, 12))
 plt.suptitle('Performance Metrics Comparison Across Methods', fontsize=16)
 
 for m_idx, metric in enumerate(metrics_to_plot):
-    plt.subplot(3, 1, m_idx+1)
+    ax = plt.subplot(3, 1, m_idx+1)
 
     # Prepare data for plotting
     x = np.arange(len(axes_names))
@@ -398,15 +400,27 @@ for m_idx, metric in enumerate(metrics_to_plot):
     val_wma = [wma_stats[i][metric] for i in range(3)]
     val_slpoly = [slpoly_stats[i][metric] for i in range(3)]
 
-    plt.bar(x - width, val_base, width, label='Finite Differences', color='gray', alpha=0.7)
-    plt.bar(x, val_wma, width, label='WMA', color='RoyalBlue', alpha=0.7)
-    plt.bar(x + width, val_slpoly, width, label='Sliding Polyfit', color='ForestGreen', alpha=0.7)
+    # Create bars and store the containers (rects) to apply labels later
+    rects1 = ax.bar(x - width, val_base, width, label='Finite Differences', color='gray', alpha=0.7)
+    rects2 = ax.bar(x, val_wma, width, label='WMA', color='RoyalBlue', alpha=0.7)
+    rects3 = ax.bar(x + width, val_slpoly, width, label='Sliding Polyfit', color='ForestGreen', alpha=0.7)
+
+    # Add value labels on top of bars
+    ax.bar_label(rects1, padding=3, fmt='%.3f', fontsize=10, fontweight='bold')
+    ax.bar_label(rects2, padding=3, fmt='%.3f', fontsize=10, fontweight='bold')
+    ax.bar_label(rects3, padding=3, fmt='%.3f', fontsize=10, fontweight='bold')
 
     plt.title(f'{metric} Comparison')
     plt.xticks(x, axes_names)
     plt.ylabel(f'{metric} (m/s)')
+    
+    # Adjust Y-axis limit 
+    max_val = max(max(val_base), max(val_wma), max(val_slpoly))
+    ax.set_ylim(0, max_val * 1.15)
+    
     plt.legend()
     plt.grid(axis='y', linestyle='--', alpha=0.3)
+
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
 # Print percentage improvements
