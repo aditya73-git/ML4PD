@@ -11,7 +11,7 @@ import landing_point_plotter as plotter
 #LOCATION_DATA_CSV = "Location Tracking/beer_pong_trajectories.csv" #Speed tracking csv includes this dataset as well
 SPEED_DATA_CSV = "Speed Tracking/beer_pong_velocity_output.csv"
 OUTPUT_FOLDER = "PhysicsBasedPrediction"
-OUTPUT_DATA_CSV = "landing_point_prediction.csv"
+OUTPUT_DATA_CSV = "PhysicsBasedPrediction/landing_point_prediction.csv"
 IMPACT_DATA_CSV = "Labelling/impact_log.csv"
 
 # Enable interactive plotting
@@ -120,14 +120,43 @@ def calc_landing_point_from_ground_truth(data):
 
 df = calc_landing_point_from_ground_truth(df)
 
+def calc_landing_error(data, impact_log):
+
+    dataset = data.copy()
+
+    # Initialize error columns
+    dataset['x_pred_err'] = np.nan
+    dataset['y_pred_err'] = np.nan
+    dataset['pred_err'] = np.nan
+
+    for throw_id, group in dataset.groupby('throw_id'):
+        # Get real impact point for this throw
+        impact_row = impact_log.loc[impact_log['ID'] == throw_id]
+
+        x_real = impact_row.iloc[0]['X_cm'] / 100.0
+        y_real = impact_row.iloc[0]['Y_cm'] / 100.0
+
+        #Mask for current throw and predicted landing points
+        mask = ((dataset['throw_id'] == throw_id) & dataset['x_land_pred'].notna() & dataset['y_land_pred'].notna())
+
+        dataset.loc[mask, 'x_pred_err'] = dataset.loc[mask, 'x_land_pred'] - x_real
+        dataset.loc[mask, 'y_pred_err'] = dataset.loc[mask, 'y_land_pred'] - y_real
+        dataset.loc[mask, 'pred_err'] = np.sqrt(dataset.loc[mask, 'x_pred_err']**2 + dataset.loc[mask, 'y_pred_err']**2)
+
+    return dataset
+
+df = calc_landing_error(df, impact_log)
+
 print("Physics based prediction (Task 6a):")
 print(df[['throw_id', 't', 'x_land_pred', 'y_land_pred', 't_to_land_pred','t_to_land_grand_truth', 'x_land_grand_truth', 'y_land_grand_truth']].head(30))
 
 # Figure tests for throw 1
 plotter.plot_landing_points_for_throw(df, impact_log, throw_id=1, output_folder=None, show=True )
-plotter.plot_landing_points_for_throw(df, impact_log, throw_id=2, output_folder=None, show=True )
-plotter.plot_landing_points_for_throw(df, impact_log, throw_id=3, output_folder=None, show=True )
-plotter.plot_landing_points_for_throw(df, impact_log, throw_id=4, output_folder=None, show=True )
+#plotter.plot_landing_points_for_throw(df, impact_log, throw_id=2, output_folder=None, show=True )
+#plotter.plot_landing_points_for_throw(df, impact_log, throw_id=3, output_folder=None, show=True )
+#plotter.plot_landing_points_for_throw(df, impact_log, throw_id=4, output_folder=None, show=True )
+
+plotter.plot_landing_points_for_throw_with_RMS(df, impact_log, throw_id=4, output_folder=None, show=True )
 
 plotter.plot_landing_error_over_time_for_throw(df, impact_log, throw_id=1,  output_folder=None, show=True )
 plotter.plot_impact_log_data(df, impact_log, output_folder=None, show=True )
