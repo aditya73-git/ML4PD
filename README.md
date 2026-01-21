@@ -11,8 +11,15 @@ and
 ```
 Object Detection Model/val
 ```
+# Location Tracking
+## Author: Lina Ghonim - go54sen - 03821777
 
-
+### Important Note:
+- The synced videos are removed from the repository for max. storage submission purposes.
+- To be able to run the 'process_video.py' file under Location Tracking folder, kindly download the folder named "syncronized_videos" from the group 15 Sharepoint drive and place it under Location Tracking folder so that the path is as follows:
+```
+Location Tracking/syncronized_videos
+```
 
 [Link to the videos on the google drive](https://drive.google.com/drive/folders/1ydsWSwhpbqV0yLzrPYnB0bpNhSExt8NX)
 
