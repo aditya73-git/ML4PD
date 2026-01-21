@@ -10,8 +10,9 @@ from sklearn.feature_selection import SelectKBest, f_regression
 from sklearn.base import clone
 
 # 1. LOAD & ALIGN DATA
-vel = pd.read_csv("beer_pong_velocity_output.csv")
-impact = pd.read_csv("impact_log.csv")
+vel = pd.read_csv(r"ML4PD/Speed Tracking/beer_pong_velocity_output.csv")
+impact = pd.read_csv(r"ML4PD/Labelling/impact_log.csv")
+
 
 # Align IDs: Impact ID 21 corresponds to Throw ID 1
 impact["throw_id"] = impact["ID"] - 20
