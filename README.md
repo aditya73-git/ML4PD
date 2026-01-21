@@ -7,7 +7,7 @@
 
 - `train/labels/`: Contains YOLO-format label files for training images.
 
-- `val/images/`:Contains validation images used to evaluate the model during training.
+- `val/images/`: Contains validation images used to evaluate the model during training.
 
 - `val/labels/`: Contains ground-truth labels for validation images.
 
@@ -16,6 +16,8 @@
 - `runs/detect/train/`: Results from training YOLOv8n
 
 - `runs/detect/train2/`: Results from training YOLOv8s
+
+- `runs/detect/train3/`: Results from training YOLOv8s with stricter configurations.
 
 - `data.yaml`: Defines the dataset configuration for YOLO.
 
@@ -50,7 +52,9 @@ Object Detection Model/val
 Location Tracking/syncronized_videos
 ```
 
-[Link to the videos on the google drive](https://drive.google.com/drive/folders/1ydsWSwhpbqV0yLzrPYnB0bpNhSExt8NX)
 
+# Useful Links
 
-[Link to the presentation (Google Slides)](https://docs.google.com/presentation/d/1DE0DZpC3-iIcxX1wmQhgHlwFM3O0JKoiveR2z3y3ClQ/edit?usp=sharing)
+- [Link to the presentation (Google Slides)](https://docs.google.com/presentation/d/1DE0DZpC3-iIcxX1wmQhgHlwFM3O0JKoiveR2z3y3ClQ/edit?usp=sharing)
+
+- [Link to the git repository](https://github.com/aditya73-git/ML4PD)
