@@ -27,11 +27,17 @@
 
 - `analysis.py`: Used to validate and compare trained models.
 
-- `test.py`: Used for testing the trained model on new images.
+- `test.py`: Used for testing the trained model on new images and prints out normalized YOLO xywh for both images and saves the images with bounding boxes drawn under `test images`.
 
 - `test2.py`: Created to modify `test.py` to be able to integrate with the Location Tracking.
 
-### Important Note:
+### Important Notes:
+- To run you need to have openCV installed:
+```
+pip install opencv-python
+```
+- To train the models run `model1.py` for yolov8n and run `model2.py`for yolov8s.
+- Run `test.py` for verifying the object detection model for yolov8n and solution of task (d).
 - The labelled training data and validation data are removed from the repository for max. storage submission purposes.
 - To be able to run the object detection model, kindly download the folder named `train` and the folder named `val` from the **group 15 Sharepoint drive** and place both under `Object Detection Model` folder so that the path is as follows:
 ```
@@ -45,12 +51,17 @@ Object Detection Model/val
 # Location Tracking
 ## Author: Lina Ghonim - go54sen - 03821777
 
-### Important Note:
+### Important Notes:
 - The synced videos are removed from the repository for max. storage submission purposes.
 - To be able to run the `linear_regression.py` file under Location Tracking folder, kindly download the folder named `syncronized_videos` from the group 15 Sharepoint drive and place it under `Location Tracking` folder so that the path is as follows:
 ```
 Location Tracking/syncronized_videos
 ```
+- Only **run** `linear_regression.py` because `tracking_code_trial2.py` is just a helper file.
+
+- To get the error plots run `error_calculation.py`.
+
+- To get the calibration matrices, run `Calibration.py`, `Calibration2.py`, `Camera1_homogrophy.py`, `Camera2_homogrophy.py` and  `Camera1_homogrophy_prezoom.py`.
 
 # Physics Based Modelling
 ## Author: Balazs Horvath - ge78yoj - 03741091

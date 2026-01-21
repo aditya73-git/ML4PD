@@ -60,10 +60,10 @@ def detect_two_images(model_path, img1_path, img2_path, out1_path="output1.jpg",
 # Using the created function to run and test 
 result1, result2 = detect_two_images(
     model_path="runs/detect/train/weights/best.pt",
-    img1_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/frame_08093.jpg",
-    img2_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/frame_08101.jpg",
-    out1_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/detected_test1.jpg",
-    out2_path="C:/Users/Youssef Sabry/Desktop/MLPD/Project/ML4PD/Object Detection Model/test images/detected_test2.jpg"
+    img1_path=r"Object Detection Model/test images/frame_08093.jpg",
+    img2_path=r"Object Detection Model/test images/frame_08101.jpg",
+    out1_path=r"Object Detection Model/test images/detected_test1.jpg",
+    out2_path=r"Object Detection Model/test images/detected_test2.jpg"
 )
 
 print("Image 1 normalized bbox:", result1[0])
