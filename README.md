@@ -73,6 +73,12 @@ Location Tracking/syncronized_videos
 ### Important Note:
 - The generated plots are removed from the repository for max. storage submission purposes. They can be restored by running `landing_point_predictor.py`
 
+# ML based prediction
+## Authour: Venkata Aditya Sai Prasanna Kotte - go56xur - 03786342
+
+- `ML_models.py` : Main script that trains 2 models and validates the results
+
+- `Plots.py` : Helper module that plots the validated results 
 
 # Useful Links
 
