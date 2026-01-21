@@ -63,6 +63,11 @@ Location Tracking/syncronized_videos
 
 - To get the calibration matrices, run `Calibration.py`, `Calibration2.py`, `Camera1_homogrophy.py`, `Camera2_homogrophy.py` and  `Camera1_homogrophy_prezoom.py`.
 
+# Speed Tracking
+## Author: Alessandro Visintainer - go75zif - 03812982
+
+- `speed_tracking.py`: Main script
+
 # Physics Based Modelling
 ## Author: Balazs Horvath - ge78yoj - 03741091
 
