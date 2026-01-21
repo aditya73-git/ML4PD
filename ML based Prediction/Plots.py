@@ -77,7 +77,7 @@ def plot_logo_validation_results(true_x, true_y, gpr_pred_x, gpr_pred_y, gb_pred
     
     # Save and Show
     plt.tight_layout()
-    plt.savefig("logo_validation_results.png")
+    #plt.savefig("logo_validation_results.png")
     plt.show()
 
 
@@ -99,8 +99,8 @@ def plot_realtime_axis_convergence(
     ax1.plot(timeline, pred_x_gpr, 'b-', linewidth=2, label='Gaussian Process')
     ax1.fill_between(
         timeline,
-        np.array(pred_x_gpr) - 1.96 * np.array(std_x_gpr),
-        np.array(pred_x_gpr) + 1.96 * np.array(std_x_gpr),
+        np.array(pred_x_gpr) - 0.96 * np.array(std_x_gpr),
+        np.array(pred_x_gpr) + 0.96 * np.array(std_x_gpr),
         alpha=0.1,
         label='95% Confidence'
     )
@@ -125,8 +125,8 @@ def plot_realtime_axis_convergence(
     ax2.plot(timeline, pred_y_gpr, 'b-', linewidth=2, label='Gaussian Process')
     ax2.fill_between(
         timeline,
-        np.array(pred_y_gpr) - 1.96 * np.array(std_y_gpr),
-        np.array(pred_y_gpr) + 1.96 * np.array(std_y_gpr),
+        np.array(pred_y_gpr) - 0.96 * np.array(std_y_gpr),
+        np.array(pred_y_gpr) + 0.96 * np.array(std_y_gpr),
         alpha=0.1,
         label='95% Confidence'
     )
@@ -149,7 +149,7 @@ def plot_realtime_axis_convergence(
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("absolute_convergence_plot.png", dpi=300)
+    # plt.savefig(f"absolute_convergence_plot_{throw_id}.png", dpi=300)
     plt.show()
 
 def animate_gp_covariance_evolution(
@@ -327,6 +327,19 @@ def plot_gp_posterior_grid(
     plt.tight_layout()
     plt.show()
 
+def plot_feature_hist(counter, title):
+    sorted_items = sorted(counter.items(), key=lambda x: x[1], reverse=True)
+    names, counts = zip(*sorted_items)
+    
+    plt.figure(figsize=(12, 6))
+    plt.bar(names, counts, color='teal', edgecolor='black', alpha=0.7)
+    plt.title(title, fontsize=14)
+    plt.ylabel("Selection Count (Max 30)", fontsize=12)
+    plt.xticks(rotation=90)
+    plt.grid(axis='y', linestyle='--', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"Feature_hist_gpr_{title}.png")
+    plt.show()
     
 # ---------------------------------------------------------
 # Usage Example (Add this to your main script after Section 5):
