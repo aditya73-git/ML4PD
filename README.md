@@ -65,6 +65,8 @@ Location Tracking/syncronized_videos
 # ML based prediction
 ## Authour: Venkata Aditya Sai Prasanna Kotte - go56xur - 03786342
 
+- `pip install pandas numpy matplotlib scikit-learn` : Ensure you have the following Python libraries installed
+
 - `ML_models.py` : Main script that trains 2 models and validates the results
 
 - `Plots.py` : Helper module that plots the validated results 
