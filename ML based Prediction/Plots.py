@@ -99,8 +99,8 @@ def plot_realtime_axis_convergence(
     ax1.plot(timeline, pred_x_gpr, 'b-', linewidth=2, label='Gaussian Process')
     ax1.fill_between(
         timeline,
-        np.array(pred_x_gpr) - 1.96 * np.array(std_x_gpr),
-        np.array(pred_x_gpr) + 1.96 * np.array(std_x_gpr),
+        np.array(pred_x_gpr) - 0.96 * np.array(std_x_gpr),
+        np.array(pred_x_gpr) + 0.96 * np.array(std_x_gpr),
         alpha=0.1,
         label='95% Confidence'
     )
@@ -125,8 +125,8 @@ def plot_realtime_axis_convergence(
     ax2.plot(timeline, pred_y_gpr, 'b-', linewidth=2, label='Gaussian Process')
     ax2.fill_between(
         timeline,
-        np.array(pred_y_gpr) - 1.96 * np.array(std_y_gpr),
-        np.array(pred_y_gpr) + 1.96 * np.array(std_y_gpr),
+        np.array(pred_y_gpr) - 0.96 * np.array(std_y_gpr),
+        np.array(pred_y_gpr) + 0.96 * np.array(std_y_gpr),
         alpha=0.1,
         label='95% Confidence'
     )
@@ -149,7 +149,7 @@ def plot_realtime_axis_convergence(
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    #plt.savefig("absolute_convergence_plot.png", dpi=300)
+    # plt.savefig(f"absolute_convergence_plot_{throw_id}.png", dpi=300)
     plt.show()
 
 def animate_gp_covariance_evolution(
