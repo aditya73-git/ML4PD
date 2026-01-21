@@ -8,6 +8,7 @@ Orchestrates the complete Physics-Informed Neural Network pipeline:
 """
 
 import os
+import sys
 import numpy as np
 import tensorflow as tf
 import pandas as pd
@@ -20,6 +21,14 @@ from models.physics_loss import physics_loss_original, scaled_physics_loss
 from training.trainer import train_with_validation
 from prediction.predictor import smart_predict, test_predictions
 from visualization.plots import create_visualizations, plot_loss_history
+
+# Ensure script directory is in sys.path for imports
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+if script_dir not in sys.path:
+    sys.path.append(script_dir)
+
+os.chdir(script_dir)
 
 def main():
     """Main execution function - runs the complete PINN pipeline"""
@@ -139,6 +148,9 @@ def main():
         # Save scalers for future predictions
         joblib.dump(scaler_X, 'final_validation_results/scaler_X.pkl')
         joblib.dump(scaler_y, 'final_validation_results/scaler_y.pkl')
+
+        # Save trained model
+        pinn.save('final_validation_results/pinn_model.h5')
         
         # --- STEP 7: CREATE VISUALIZATIONS ---
         print("\n" + "=" * 80)

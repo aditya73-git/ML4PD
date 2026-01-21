@@ -2,97 +2,95 @@ import pandas as pd
 import numpy as np
 import cv2
 import os
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import GroupShuffleSplit
+import sys
+import joblib
+import tensorflow as tf
 
 # =========================================================
-# 1. CAMERA SETUP (Parameters for Cam 1 and Cam 2)
+# 0. PATH SETUP AND MATRIX IMPORTS
 # =========================================================
-print("Loading calibration parameters...")
+BASE_DIR = os.getcwd()
 
-# --- CAMERA 1 SETUP ---
-# Load intrinsic matrix (mtx) and distortion coefficients (dist)
-cam1 = np.load("Calibration matrices/cam1_calib.npz")
-K1, D1 = cam1["mtx"], cam1["dist"]
-image_pts_cam1 = np.load("Calibration matrices/cam1_target_image_pts.npy").astype(np.float32)
+# Add paths to locate tracking and PINN modules
+sys.path.append(os.path.join(BASE_DIR, "Location Tracking"))
+sys.path.append(os.path.join(BASE_DIR, "Physics Informed ML"))
 
-# --- CAMERA 2 SETUP (With Zoom/Homography logic) ---
-cam2 = np.load("Calibration matrices/cam2_calib.npz")
-K2_pre, D2 = cam2["mtx"], cam2["dist"]
-H2_pre = np.load("Calibration matrices/cam2_homography_prezoom.npy")
-H2_post = np.load("Calibration matrices/cam2_homography.npy")
-image_pts_cam2 = np.load("Calibration matrices/cam2_target_image_pts_postzoom.npy").astype(np.float32)
-
-# Calculate focal scale adjustment for Cam 2 based on homography change
-# H_tilde maps the relationship between the pre-zoom and post-zoom states
-H_tilde = np.linalg.inv(K2_pre) @ H2_post @ np.linalg.inv(H2_pre)
-scale = (np.linalg.norm(H_tilde[:, 0]) + np.linalg.norm(H_tilde[:, 1])) / 2
-
-# Create the post-zoom intrinsic matrix by scaling focal lengths (fx, fy)
-K2_post = K2_pre.copy()
-scale_correction = 12.0  # Manual correction factor from physical table measurements
-K2_post[0, 0] *= scale * scale_correction
-K2_post[1, 1] *= scale * scale_correction
-
-# Define 3D reference points of the calibration target (in meters)
-world_pts_target = np.array([
-    [-0.3, -0.3, 0.0], [0.3, -0.3, 0.0],
-    [0.3,  0.3, 0.0], [-0.3,  0.3, 0.0]
-], dtype=np.float32)
-
-# Solve PnP (Perspective-n-Point) to find Extrinsic parameters (Rotation and Translation)
-# This aligns the 3D world coordinate system with each camera's 2D view
-_, rvec1, tvec1 = cv2.solvePnP(world_pts_target, image_pts_cam1, K1, D1, flags=cv2.SOLVEPNP_IPPE)
-_, rvec2, tvec2 = cv2.solvePnP(world_pts_target, image_pts_cam2, K2_post, D2, flags=cv2.SOLVEPNP_IPPE)
-
-def get_pixel_coords(x_m, y_m, z_m, K, D, rvec, tvec):
-    """Projects 3D world coordinates (meters) into 2D pixel coordinates."""
-    point_3d = np.array([[x_m, y_m, z_m]], dtype=np.float32)
-    # cv2.projectPoints handles the perspective transformation and lens distortion
-    points_2d, _ = cv2.projectPoints(point_3d, rvec, tvec, K, D)
-    u, v = points_2d.ravel()
-    return int(u), int(v)
+# Import P1 and P2 projection matrices from your tracking file
+from tracking_code_trial2 import P1, P2 
+# Import the PINN class from Aditya's project
+from models.pinn_model import SimplePINN
 
 # =========================================================
-# 2. ML MODEL TRAINING (Causal Prediction Logic)
+# 1. PROJECTION AND FEATURE ENGINEERING FUNCTIONS
 # =========================================================
-print("Training ML models...")
-# Load velocity tracking data and impact labels
-df_velocity = pd.read_csv("Speed Tracking/beer_pong_velocity_output.csv").dropna()
-df_impact = pd.read_csv("Labelling/impact_log.csv").assign(
-    velocity_id=lambda d: d["ID"] - 20,
-    target_x_m=lambda d: d["X_cm"] / 100.0, 
-    target_y_m=lambda d: d["Y_cm"] / 100.0,
-)
 
-# Merge datasets and ensure chronological order for causal processing
-df_ml = df_velocity.merge(df_impact[["velocity_id", "target_x_m", "target_y_m"]],
-                         left_on="throw_id", right_on="velocity_id", how="inner").sort_values(["throw_id", "t"])
+def project_3d_to_2d(x, y, z, P):
+    """Uses the 3x4 projection matrix P to obtain pixel coordinates (u,v)"""
+    point_3d = np.array([x, y, z, 1.0])
+    point_2d = P @ point_3d
+    u = int(point_2d[0] / point_2d[2])
+    v = int(point_2d[1] / point_2d[2])
+    return u, v
 
-# Feature Engineering: Calculate causal deltas (current - previous) for position and velocity
-for axis in ["x", "y", "z"]:
-    df_ml[f"d{axis}"] = df_ml.groupby("throw_id")[f"{axis}_raw"].diff().fillna(0)
-    df_ml[f"dv_{axis}"] = df_ml.groupby("throw_id")[f"vel_{axis}_measured"].diff().fillna(0)
+def get_gpr_features(df_partial):
+    """Generates the 22 features in the exact order required by the GPR model"""
+    res = {}
+    # Calculate scalar velocity (magnitude)
+    v_mag = np.sqrt(df_partial["vel_x_measured"]**2 + df_partial["vel_y_measured"]**2 + df_partial["vel_z_measured"]**2)
+    
+    # 1. TEMPORAL FEATURE
+    res["duration"] = df_partial["t"].max() - df_partial["t"].min()
+    
+    # 2. POSITION & VELOCITY STATS
+    for ax in ["x", "y", "z"]:
+        # Raw Position stats
+        res[f"{ax}_raw_first"] = df_partial[f"{ax}_raw"].iloc[0]
+        res[f"{ax}_raw_last"] = df_partial[f"{ax}_raw"].iloc[-1]
+        res[f"{ax}_raw_std"] = df_partial[f"{ax}_raw"].std() if len(df_partial) > 1 else 0.0
+        # Measured Velocity stats
+        res[f"vel_{ax}_measured_mean"] = df_partial[f"vel_{ax}_measured"].mean()
+        res[f"vel_{ax}_measured_last"] = df_partial[f"vel_{ax}_measured"].iloc[-1]
+        res[f"vel_{ax}_measured_std"] = df_partial[f"vel_{ax}_measured"].std() if len(df_partial) > 1 else 0.0
+        
+    # 3. ENERGY STATS
+    res["vel_mag_mean"] = v_mag.mean()
+    res["vel_mag_max"] = v_mag.max()
+    res["vel_mag_last"] = v_mag.iloc[-1]
 
-# Define features used for prediction (instantaneous state + recent deltas)
-FEATURES = ["x_raw", "y_raw", "z_raw", "vel_x_measured", "vel_y_measured", "vel_z_measured", "dx", "dy", "dz", "dv_x", "dv_y", "dv_z"]
-X = df_ml[FEATURES]
-# Target: The offset from current position to the final impact point (Residual Prediction)
-y_dx = df_ml["target_x_m"] - df_ml["x_raw"]
-y_dy = df_ml["target_y_m"] - df_ml["y_raw"]
-
-# Split data by throw_id to avoid data leakage (don't train on frames from the test throw)
-gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
-train_idx, _ = next(gss.split(X, y_dx, df_ml["throw_id"]))
-
-# Train Random Forest Regressors for X and Y impact offsets
-rf_x = RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1).fit(X.iloc[train_idx], y_dx.iloc[train_idx])
-rf_y = RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1).fit(X.iloc[train_idx], y_dy.iloc[train_idx])
+    # Mandatory column order for GPR StandardScaler
+    cols = ["duration", "x_raw_first", "x_raw_last", "x_raw_std", "y_raw_first", "y_raw_last", "y_raw_std", 
+            "z_raw_first", "z_raw_last", "z_raw_std", "vel_x_measured_mean", "vel_x_measured_last", 
+            "vel_x_measured_std", "vel_y_measured_mean", "vel_y_measured_last", "vel_y_measured_std", 
+            "vel_z_measured_mean", "vel_z_measured_last", "vel_z_measured_std", "vel_mag_mean", 
+            "vel_mag_max", "vel_mag_last"]
+    
+    return pd.DataFrame([res])[cols].fillna(0.0)
 
 # =========================================================
-# 3. VIDEO RENDERING (Dual Camera + Slow-Mo 5x)
+# 2. MODEL LOADING
 # =========================================================
-# Precise frame intervals for the specific throw recorded in the synchronized videos
+print("Loading AI models...")
+
+# PINN Model (6 features)
+pinn_model = SimplePINN()
+# Dummy pass to initialize weights and layers
+_ = pinn_model(tf.convert_to_tensor(np.zeros((1, 6)), dtype=tf.float32)) 
+# Load only the weights from the H5 file
+pinn_model.load_weights(r"Physics Informed ML/final_validation_results/pinn_model.h5")
+scaler_X_pinn = joblib.load(r"Physics Informed ML/final_validation_results/scaler_X.pkl")
+scaler_y_pinn = joblib.load(r"Physics Informed ML/final_validation_results/scaler_y.pkl")
+
+# GPR Models (22 features)
+gpr_x = joblib.load('ML based Prediction/Trained Models/beer_pong_gpr_x.pkl')
+gpr_y = joblib.load('ML based Prediction/Trained Models/beer_pong_gpr_y.pkl')
+
+# =========================================================
+# 3. DUAL-CAMERA RENDERING LOOP
+# =========================================================
+TARGET_THROW_ID = 26
+SLOW_MO_FACTOR = 5.0
+
+# Sync intervals (start_frame, end_frame)
 throw_intervals = [
     (6964, 6990), (7403, 7430), (7606, 7628), (7795, 7822), (7992, 8017),
     (8289, 8317), (8502, 8528), (8954, 8980), (9174, 9198), (9380, 9410),
@@ -102,63 +100,66 @@ throw_intervals = [
     (14151, 14181), (14333, 14363), (14529, 14559), (14722, 14752), (14916, 14944)
 ]
 
-TARGET_THROW_ID = 26
-SLOW_MO_FACTOR = 5.0
+df_vel = pd.read_csv("Speed Tracking/beer_pong_velocity_output.csv")
+test_data = df_vel[df_vel['throw_id'] == TARGET_THROW_ID].sort_values('t')
+start_f, end_f = throw_intervals[TARGET_THROW_ID - 1]
 
-# Configuration dictionary to loop through both cameras
-configs = [
-    {"name": "CAM1", "file": "Location Tracking/syncronized_videos/CV_SYNC_IMG_0362.MOV", "K": K1, "D": D1, "rvec": rvec1, "tvec": tvec1},
-    {"name": "CAM2", "file": "Location Tracking/syncronized_videos/CV_SYNC_IMG_6590.MOV", "K": K2_post, "D": D2, "rvec": rvec2, "tvec": tvec2}
+camera_configs = [
+    {"name": "CAM1", "path": "Location Tracking/syncronized_videos/CV_SYNC_IMG_0362.MOV", "P": P1},
+    {"name": "CAM2", "path": "Location Tracking/syncronized_videos/CV_SYNC_IMG_6590.MOV", "P": P2}
 ]
 
-# Get the ML tracking data for the target throw
-test_data = df_ml[df_ml['throw_id'] == TARGET_THROW_ID].sort_values('t')
+for cfg in camera_configs:
+    print(f"\nProcessing {cfg['name']}...")
+    cap = cv2.VideoCapture(cfg['path'])
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
 
-
-
-for cfg in configs:
-    print(f"Processing {cfg['name']} for Throw {TARGET_THROW_ID}...")
-    cap = cv2.VideoCapture(cfg['file'])
-    start_frame, _ = throw_intervals[TARGET_THROW_ID - 1]
+    width, height = int(cap.get(3)), int(cap.get(4))
+    out_fps = cap.get(cv2.CAP_PROP_FPS) / SLOW_MO_FACTOR
     
-    # Calculate output FPS for slow motion effect
-    slow_fps = cap.get(cv2.CAP_PROP_FPS) / SLOW_MO_FACTOR
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-    
-    # Configure VideoWriter with H.264 codec (avc1) for mobile compatibility
-    out_path = f"Video predictions/throw_{TARGET_THROW_ID}_{cfg['name']}_5x.mp4"
-    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'avc1'), slow_fps, 
-                          (int(cap.get(3)), int(cap.get(4))))
+    # Video output using MP4 codec
+    output_name = f"Video predictions/Comparison_Throw_{TARGET_THROW_ID}_{cfg['name']}.mp4"
+    out = cv2.VideoWriter(output_name, cv2.VideoWriter_fourcc(*'mp4v'), out_fps, (width, height))
 
-    for i in range(len(test_data)):
-        ret, frame = cap.read()
-        if not ret: break
-        
-        # Get ML features for the current frame
-        row = test_data.iloc[i]
-        feat = row[FEATURES].values.reshape(1, -1)
-        
-        # Predict the impact point using the current frame's state
-        p_x = row['x_raw'] + rf_x.predict(feat)[0]
-        p_y = row['y_raw'] + rf_y.predict(feat)[0]
-        
-        # Project the 3D predicted landing point (z=0) into 2D camera pixels
-        u, v = get_pixel_coords(p_x, p_y, 0.0, cfg['K'], cfg['D'], cfg['rvec'], cfg['tvec'])
+    try:
+        for i in range(len(test_data)):
+            ret, frame = cap.read()
+            if not ret or (start_f + i) > end_f: break
+            
+            sub = test_data.iloc[:i+1]
+            row = test_data.iloc[i]
 
-        # Draw UI Elements: Crosshair and Circle at the predicted impact point
-        cv2.drawMarker(frame, (u, v), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 40, 5)
-        cv2.circle(frame, (u, v), 30, (0, 0, 255), 4)
+            # 1. PINN Prediction
+            cur_pinn = np.array([[row['x_raw'], row['y_raw'], row['z_raw'],
+                                  row['vel_x_measured'], row['vel_y_measured'], row['vel_z_measured']]])
+            y_p_raw = pinn_model.predict(scaler_X_pinn.transform(cur_pinn), verbose=0)
+            y_pinn = scaler_y_pinn.inverse_transform(y_p_raw)[0]
 
-        # Draw a massive UI header for visibility on mobile devices
-        cv2.rectangle(frame, (0,0), (950, 160), (0,0,0), -1)
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(frame, f"{cfg['name']} | THROW {TARGET_THROW_ID} | SLOWMO 5X", (25, 65), font, 2.3, (255, 255, 255), 5)
-        cv2.putText(frame, f"PRED: X={p_x:.2f}m Y={p_y:.2f}m", (25, 135), font, 2.1, (0, 255, 255), 4)
-        
-        out.write(frame)
+            # 2. GPR Prediction
+            cur_gpr = get_gpr_features(sub)
+            px_g = gpr_x.predict(cur_gpr)[0]
+            py_g = gpr_y.predict(cur_gpr)[0]
 
-    cap.release()
-    out.release()
-    print(f"Video {cfg['name']} saved successfully.")
+            # 3. Coordinate Projection (z=0 table plane)
+            up, vp = project_3d_to_2d(y_pinn[0], y_pinn[1], 0.0, cfg['P'])
+            ug, vg = project_3d_to_2d(px_g, py_g, 0.0, cfg['P'])
 
-print("\nOperation completed for both cameras.")
+            # 4. Drawing Overlay
+            cv2.drawMarker(frame, (up, vp), (255, 255, 0), cv2.MARKER_CROSS, 40, 3) # PINN (Cyan)
+            cv2.drawMarker(frame, (ug, vg), (255, 0, 255), cv2.MARKER_TILTED_CROSS, 40, 3) # GPR (Magenta)
+
+            # UI Graphics
+            cv2.rectangle(frame, (0,0), (950, 160), (0,0,0), -1)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(frame, f"{cfg['name']} | THROW {TARGET_THROW_ID} | SLOW-MO", (30, 60), font, 1.8, (255, 255, 255), 3)
+            cv2.putText(frame, f"PINN (Cyan): X={y_pinn[0]:.2f} Y={y_pinn[1]:.2f}", (30, 110), font, 1.3, (255, 255, 0), 2)
+            cv2.putText(frame, f"GPR (Magenta): X={px_g:.2f} Y={py_g:.2f}", (30, 150), font, 1.3, (255, 0, 255), 2)
+
+            out.write(frame)
+            
+        print(f"✅ Saved: {output_name}")
+    finally:
+        cap.release()
+        out.release()
+
+print("\nProcessing completed for both cameras.")

@@ -19,7 +19,7 @@ class SimplePINN(Model):
     Activation: LeakyReLU throughout (avoids dead neurons in ReLU)
     """
     
-    def __init__(self):
+    def __init__(self, **kwargs):
         """
         Initialize the neural network layers.
         
@@ -32,7 +32,7 @@ class SimplePINN(Model):
         This specific architecture (64→32) was determined through experimentation
         to provide sufficient capacity while avoiding overfitting.
         """
-        super(SimplePINN, self).__init__()
+        super(SimplePINN, self).__init__(**kwargs)
         
         # First hidden layer: 64 neurons
         # Takes 6D input vector (position + velocity) and expands to 64 dimensions
