@@ -18,22 +18,21 @@ SQUARE_SIZE = 0.015         # meters
 
 # Camera 1 (already valid)
 cam1 = np.load(
-    "cam1_calib.npz")
+    "Calibration matrices/cam1_calib.npz")
 K1 = cam1["mtx"]
 D1 = cam1["dist"]
 
 # Camera 2 pre-zoom
 cam2 = np.load(
-    "cam2_calib.npz")
+    "Calibration matrices/cam2_calib.npz")
 K2_pre = cam2["mtx"]
 D2 = cam2["dist"]
 
 # Homographies
 H2_pre = np.load(
-    "cam2_homography_prezoom.npy")
+    "Calibration matrices/cam2_homography_prezoom.npy")
 H2_post = np.load(
-    "cam2_homography.npy")
-
+    "Calibration matrices/cam2_homography.npy")
 H_tilde = np.linalg.inv(K2_pre) @ H2_post @ np.linalg.inv(H2_pre)
 
 s1 = np.linalg.norm(H_tilde[:, 0])
@@ -62,7 +61,7 @@ world_pts_target = np.array([
 ], dtype=np.float32)
 
 image_pts_cam2 = np.load(
-    "cam2_target_image_pts_postzoom.npy").astype(np.float32)
+    "Calibration matrices/cam2_target_image_pts_postzoom.npy").astype(np.float32)
 
 _, rvec2, tvec2 = cv2.solvePnP(
     world_pts_target,
@@ -72,7 +71,7 @@ _, rvec2, tvec2 = cv2.solvePnP(
     flags=cv2.SOLVEPNP_IPPE
 )
 
-image_pts_cam1 = np.load("cam1_target_image_pts.npy").astype(np.float32)
+image_pts_cam1 = np.load("Calibration matrices/cam1_target_image_pts.npy").astype(np.float32)
 
 _, rvec1, tvec1 = cv2.solvePnP(
     world_pts_target,
