@@ -52,6 +52,16 @@ Object Detection Model/val
 Location Tracking/syncronized_videos
 ```
 
+# Physics Based Modelling
+## Author: Balazs Horvath - ge78yoj - 03741091
+
+- `landing_point_predictor.py`: Main script
+
+- `landing_point_plotter.py`: Definition for the plotting functions
+
+### Important Note:
+- The generated plots are removed from the repository for max. storage submission purposes. They can be restored by running `landing_point_predictor.py`
+
 
 # Useful Links
 
