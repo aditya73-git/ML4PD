@@ -2,97 +2,139 @@ import pandas as pd
 import numpy as np
 import cv2
 import os
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import Matern, WhiteKernel
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.feature_selection import SelectKBest, f_regression
+from sklearn.base import clone
+from ultralytics import YOLO
 
-# =========================================================
-# 1. CAMERA SETUP (Parameters for Cam 1 and Cam 2)
-# =========================================================
+# ---------------------------
+# PATH SETUP
+# ---------------------------
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(script_dir))
+# project_root_1 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # already defined
+yolo_model_path = os.path.join(project_root, "ML4PD", "runs", "detect", "train", "weights", "best.pt")
+
+cam1_path = os.path.join(project_root, "Recording", "Setup 3", "CV_SYNC_IMG_0362.MOV")
+cam2_path = os.path.join(project_root, "Recording", "Setup 3", "CV_SYNC_IMG_6590.MOV")
+
+# ---------------------------
+# 1. CAMERA CALIBRATION
+# ---------------------------
 print("Loading calibration parameters...")
 
-# --- CAMERA 1 SETUP ---
-# Load intrinsic matrix (mtx) and distortion coefficients (dist)
 cam1 = np.load("Calibration matrices/cam1_calib.npz")
 K1, D1 = cam1["mtx"], cam1["dist"]
 image_pts_cam1 = np.load("Calibration matrices/cam1_target_image_pts.npy").astype(np.float32)
 
-# --- CAMERA 2 SETUP (With Zoom/Homography logic) ---
 cam2 = np.load("Calibration matrices/cam2_calib.npz")
 K2_pre, D2 = cam2["mtx"], cam2["dist"]
 H2_pre = np.load("Calibration matrices/cam2_homography_prezoom.npy")
 H2_post = np.load("Calibration matrices/cam2_homography.npy")
 image_pts_cam2 = np.load("Calibration matrices/cam2_target_image_pts_postzoom.npy").astype(np.float32)
 
-# Calculate focal scale adjustment for Cam 2 based on homography change
-# H_tilde maps the relationship between the pre-zoom and post-zoom states
+# Zoom scale correction
 H_tilde = np.linalg.inv(K2_pre) @ H2_post @ np.linalg.inv(H2_pre)
 scale = (np.linalg.norm(H_tilde[:, 0]) + np.linalg.norm(H_tilde[:, 1])) / 2
-
-# Create the post-zoom intrinsic matrix by scaling focal lengths (fx, fy)
 K2_post = K2_pre.copy()
-scale_correction = 12.0  # Manual correction factor from physical table measurements
+scale_correction = 12.0
 K2_post[0, 0] *= scale * scale_correction
 K2_post[1, 1] *= scale * scale_correction
 
-# Define 3D reference points of the calibration target (in meters)
-world_pts_target = np.array([
-    [-0.3, -0.3, 0.0], [0.3, -0.3, 0.0],
-    [0.3,  0.3, 0.0], [-0.3,  0.3, 0.0]
-], dtype=np.float32)
-
-# Solve PnP (Perspective-n-Point) to find Extrinsic parameters (Rotation and Translation)
-# This aligns the 3D world coordinate system with each camera's 2D view
+# Solve PnP
+world_pts_target = np.array([[-0.3, -0.3, 0.0], [0.3, -0.3, 0.0], [0.3, 0.3, 0.0], [-0.3, 0.3, 0.0]], dtype=np.float32)
 _, rvec1, tvec1 = cv2.solvePnP(world_pts_target, image_pts_cam1, K1, D1, flags=cv2.SOLVEPNP_IPPE)
 _, rvec2, tvec2 = cv2.solvePnP(world_pts_target, image_pts_cam2, K2_post, D2, flags=cv2.SOLVEPNP_IPPE)
 
 def get_pixel_coords(x_m, y_m, z_m, K, D, rvec, tvec):
-    """Projects 3D world coordinates (meters) into 2D pixel coordinates."""
     point_3d = np.array([[x_m, y_m, z_m]], dtype=np.float32)
-    # cv2.projectPoints handles the perspective transformation and lens distortion
     points_2d, _ = cv2.projectPoints(point_3d, rvec, tvec, K, D)
     u, v = points_2d.ravel()
     return int(u), int(v)
 
-# =========================================================
-# 2. ML MODEL TRAINING (Causal Prediction Logic)
-# =========================================================
-print("Training ML models...")
-# Load velocity tracking data and impact labels
-df_velocity = pd.read_csv("Speed Tracking/beer_pong_velocity_output.csv").dropna()
-df_impact = pd.read_csv("Labelling/impact_log.csv").assign(
-    velocity_id=lambda d: d["ID"] - 20,
-    target_x_m=lambda d: d["X_cm"] / 100.0, 
-    target_y_m=lambda d: d["Y_cm"] / 100.0,
-)
+# ---------------------------
+# 2. LOAD DATA AND TRAIN ML MODELS
+# ---------------------------
+print("Loading data and training ML models...")
 
-# Merge datasets and ensure chronological order for causal processing
-df_ml = df_velocity.merge(df_impact[["velocity_id", "target_x_m", "target_y_m"]],
-                         left_on="throw_id", right_on="velocity_id", how="inner").sort_values(["throw_id", "t"])
+vel = pd.read_csv("Speed Tracking/beer_pong_velocity_output.csv")
+impact = pd.read_csv("Labelling/impact_log.csv")
+impact["throw_id"] = impact["ID"] - 20
+vel["vel_mag"] = np.sqrt(vel["vel_x_measured"]**2 + vel["vel_y_measured"]**2 + vel["vel_z_measured"]**2)
 
-# Feature Engineering: Calculate causal deltas (current - previous) for position and velocity
-for axis in ["x", "y", "z"]:
-    df_ml[f"d{axis}"] = df_ml.groupby("throw_id")[f"{axis}_raw"].diff().fillna(0)
-    df_ml[f"dv_{axis}"] = df_ml.groupby("throw_id")[f"vel_{axis}_measured"].diff().fillna(0)
+def get_features(df_partial):
+    res = {}
+    res["duration"] = df_partial["t"].max() - df_partial["t"].min()
+    for ax in ["x", "y", "z"]:
+        col = f"{ax}_raw"
+        res[f"{col}_first"] = df_partial[col].iloc[0]
+        res[f"{col}_last"] = df_partial[col].iloc[-1]
+        res[f"{col}_std"] = df_partial[col].std() if len(df_partial) > 1 else 0.0
+    for ax in ["x", "y", "z"]:
+        col = f"vel_{ax}_measured"
+        res[f"{col}_mean"] = df_partial[col].mean()
+        res[f"{col}_last"] = df_partial[col].iloc[-1]
+        res[f"{col}_std"] = df_partial[col].std() if len(df_partial) > 1 else 0.0
+    res["vel_mag_mean"] = df_partial["vel_mag"].mean()
+    res["vel_mag_max"] = df_partial["vel_mag"].max()
+    res["vel_mag_last"] = df_partial["vel_mag"].iloc[-1]
+    return pd.Series(res)
 
-# Define features used for prediction (instantaneous state + recent deltas)
-FEATURES = ["x_raw", "y_raw", "z_raw", "vel_x_measured", "vel_y_measured", "vel_z_measured", "dx", "dy", "dz", "dv_x", "dv_y", "dv_z"]
-X = df_ml[FEATURES]
-# Target: The offset from current position to the final impact point (Residual Prediction)
-y_dx = df_ml["target_x_m"] - df_ml["x_raw"]
-y_dy = df_ml["target_y_m"] - df_ml["y_raw"]
+TARGET_THROW_ID = 26
+data_rows, targets_x, targets_y = [], [], []
 
-# Split data by throw_id to avoid data leakage (don't train on frames from the test throw)
-gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
-train_idx, _ = next(gss.split(X, y_dx, df_ml["throw_id"]))
+common_ids = sorted(list(set(vel["throw_id"]).intersection(set(impact["throw_id"]))))
+train_ids = [tid for tid in common_ids if tid != TARGET_THROW_ID]
 
-# Train Random Forest Regressors for X and Y impact offsets
-rf_x = RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1).fit(X.iloc[train_idx], y_dx.iloc[train_idx])
-rf_y = RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1).fit(X.iloc[train_idx], y_dy.iloc[train_idx])
+for tid in train_ids:
+    full_throw = vel[vel["throw_id"] == tid].sort_values("t")
+    tgt = impact[impact["throw_id"] == tid]
+    if len(full_throw) > 0 and len(tgt) > 0:
+        data_rows.append(get_features(full_throw))
+        targets_x.append(tgt["X_cm"].values[0] / 100.0)
+        targets_y.append(tgt["Y_cm"].values[0] / 100.0)
 
-# =========================================================
-# 3. VIDEO RENDERING (Dual Camera + Slow-Mo 5x)
-# =========================================================
-# Precise frame intervals for the specific throw recorded in the synchronized videos
+X_train = pd.DataFrame(data_rows)
+y_x_train = np.array(targets_x)
+y_y_train = np.array(targets_y)
+
+# Define ML pipelines
+kernel = 1.0 * Matern(length_scale=1.0, nu=2.5) + WhiteKernel(noise_level=1e-4)
+
+gpr_base = Pipeline([
+    ("scaler", StandardScaler()),
+    ("select", SelectKBest(f_regression, k=15)),
+    ("gpr", GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=0, random_state=42))
+])
+
+gb_base = Pipeline([
+    ("scaler", StandardScaler()),
+    ("select", SelectKBest(f_regression, k=15)),
+    ("gb", GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=42))
+])
+
+gpr_x, gpr_y = clone(gpr_base), clone(gpr_base)
+gb_x, gb_y = clone(gb_base), clone(gb_base)
+
+gpr_x.fit(X_train, y_x_train)
+gpr_y.fit(X_train, y_y_train)
+gb_x.fit(X_train, y_x_train)
+gb_y.fit(X_train, y_y_train)
+
+print("Models trained successfully.")
+
+# ---------------------------
+# 3. LOAD YOLO MODEL
+# ---------------------------
+yolo_model = YOLO(yolo_model_path)
+
+# ---------------------------
+# 4. VIDEO RENDERING LOOP
+# ---------------------------
 throw_intervals = [
     (6964, 6990), (7403, 7430), (7606, 7628), (7795, 7822), (7992, 8017),
     (8289, 8317), (8502, 8528), (8954, 8980), (9174, 9198), (9380, 9410),
@@ -102,63 +144,76 @@ throw_intervals = [
     (14151, 14181), (14333, 14363), (14529, 14559), (14722, 14752), (14916, 14944)
 ]
 
-TARGET_THROW_ID = 26
-SLOW_MO_FACTOR = 5.0
-
-# Configuration dictionary to loop through both cameras
 configs = [
-    {"name": "CAM1", "file": "Location Tracking/syncronized_videos/CV_SYNC_IMG_0362.MOV", "K": K1, "D": D1, "rvec": rvec1, "tvec": tvec1},
-    {"name": "CAM2", "file": "Location Tracking/syncronized_videos/CV_SYNC_IMG_6590.MOV", "K": K2_post, "D": D2, "rvec": rvec2, "tvec": tvec2}
+    {"name": "CAM1", "file": cam1_path, "K": K1, "D": D1, "rvec": rvec1, "tvec": tvec1},
+    {"name": "CAM2", "file": cam2_path, "K": K2_post, "D": D2, "rvec": rvec2, "tvec": tvec2}
 ]
 
-# Get the ML tracking data for the target throw
-test_data = df_ml[df_ml['throw_id'] == TARGET_THROW_ID].sort_values('t')
-
-
+throw_data = vel[vel['throw_id'] == TARGET_THROW_ID].sort_values('t')
+SLOW_MO_FACTOR = 5.0
 
 for cfg in configs:
-    print(f"Processing {cfg['name']} for Throw {TARGET_THROW_ID}...")
+    print(f"Rendering {cfg['name']}...")
     cap = cv2.VideoCapture(cfg['file'])
-    start_frame, _ = throw_intervals[TARGET_THROW_ID - 1]
     
-    # Calculate output FPS for slow motion effect
-    slow_fps = cap.get(cv2.CAP_PROP_FPS) / SLOW_MO_FACTOR
+    start_frame, end_frame = throw_intervals[TARGET_THROW_ID - 1]
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(3))
+    height = int(cap.get(4))
     
-    # Configure VideoWriter with H.264 codec (avc1) for mobile compatibility
-    out_path = f"Video predictions/throw_{TARGET_THROW_ID}_{cfg['name']}_5x.mp4"
-    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'avc1'), slow_fps, 
-                          (int(cap.get(3)), int(cap.get(4))))
-
-    for i in range(len(test_data)):
+    out_path = f"Video predictions/Pipeline_Throw_{TARGET_THROW_ID}_{cfg['name']}.avi"
+    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'MJPG'), fps / SLOW_MO_FACTOR, (width, height))
+    
+    frame_idx = 0
+    while frame_idx < len(throw_data):
         ret, frame = cap.read()
         if not ret: break
-        
-        # Get ML features for the current frame
-        row = test_data.iloc[i]
-        feat = row[FEATURES].values.reshape(1, -1)
-        
-        # Predict the impact point using the current frame's state
-        p_x = row['x_raw'] + rf_x.predict(feat)[0]
-        p_y = row['y_raw'] + rf_y.predict(feat)[0]
-        
-        # Project the 3D predicted landing point (z=0) into 2D camera pixels
-        u, v = get_pixel_coords(p_x, p_y, 0.0, cfg['K'], cfg['D'], cfg['rvec'], cfg['tvec'])
+        current_data_row = throw_data.iloc[frame_idx]
 
-        # Draw UI Elements: Crosshair and Circle at the predicted impact point
-        cv2.drawMarker(frame, (u, v), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 40, 5)
-        cv2.circle(frame, (u, v), 30, (0, 0, 255), 4)
+        # --- YOLO DETECTION ---
+        results = yolo_model(frame)[0]
+        if len(results.boxes) > 0:
+            box = results.boxes.xyxy[0].cpu().numpy()
+            u_curr = int((box[0] + box[2]) / 2)
+            v_curr = int((box[1] + box[3]) / 2)
+            cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (0, 255, 0), 2)
+            cv2.putText(frame, "YOLO DETECTION", (u_curr - 40, v_curr - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        else:
+            # fallback to 3D projection
+            u_curr, v_curr = get_pixel_coords(current_data_row['x_raw'], current_data_row['y_raw'], current_data_row['z_raw'],
+                                              cfg['K'], cfg['D'], cfg['rvec'], cfg['tvec'])
 
-        # Draw a massive UI header for visibility on mobile devices
-        cv2.rectangle(frame, (0,0), (950, 160), (0,0,0), -1)
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(frame, f"{cfg['name']} | THROW {TARGET_THROW_ID} | SLOWMO 5X", (25, 65), font, 2.3, (255, 255, 255), 5)
-        cv2.putText(frame, f"PRED: X={p_x:.2f}m Y={p_y:.2f}m", (25, 135), font, 2.1, (0, 255, 255), 4)
-        
+        # --- VELOCITY HUD ---
+        vel_mag = current_data_row['vel_mag']
+        cv2.putText(frame, f"VEL: {vel_mag:.2f} m/s", (u_curr + 30, v_curr), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+
+        # --- ML PREDICTION ---
+        if frame_idx > 3:
+            features = pd.DataFrame([get_features(throw_data.iloc[:frame_idx+1])])
+            # GPR
+            pred_x_m = gpr_x.predict(features)[0]
+            pred_y_m = gpr_y.predict(features)[0]
+            u_pred, v_pred = get_pixel_coords(pred_x_m, pred_y_m, 0.0, cfg['K'], cfg['D'], cfg['rvec'], cfg['tvec'])
+            cv2.drawMarker(frame, (u_pred, v_pred), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 30, 3)
+            cv2.circle(frame, (u_pred, v_pred), 20, (0, 0, 255), 2)
+
+            # Gradient Boosting
+            gb_x_m = gb_x.predict(features)[0]
+            gb_y_m = gb_y.predict(features)[0]
+            u_gb, v_gb = get_pixel_coords(gb_x_m, gb_y_m, 0.0, cfg['K'], cfg['D'], cfg['rvec'], cfg['tvec'])
+            cv2.circle(frame, (u_gb, v_gb), 10, (255, 200, 0), -1)
+
+        # --- HUD ---
+        cv2.rectangle(frame, (0, 0), (700, 120), (0, 0, 0), -1)
+        cv2.putText(frame, "PIPELINE VISUALIZATION", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+        cv2.putText(frame, f"GREEN: YOLO | RED: GPR | BLUE: GB", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200, 200, 200), 2)
+
         out.write(frame)
+        frame_idx += 1
 
     cap.release()
     out.release()
-    print(f"Video {cfg['name']} saved successfully.")
+    print(f"Saved {out_path}")
 
-print("\nOperation completed for both cameras.")
+print("Done.")
