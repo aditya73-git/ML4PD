@@ -30,7 +30,7 @@ def main():
     print("=" * 80)
     
     # Create directory for saving results
-    os.makedirs('final_validation_results', exist_ok=True)
+    os.makedirs('Physics Informed ML/final_validation_results', exist_ok=True)
     
     # Set random seeds for reproducibility
     np.random.seed(42)
@@ -40,8 +40,8 @@ def main():
     print("Loading data...")
     # Load velocity trajectory data and impact point data
     vel_data, impact_data = load_data(
-        "data/beer_pong_velocity_output.csv",
-        "data/impact_log.csv"
+        "Physics Informed ML/data/beer_pong_velocity_output.csv",
+        "Physics Informed ML/data/impact_log.csv"
     )
     
     # Split data: Training (throws 1-16), Validation (17-20), Test (21-30)
@@ -124,7 +124,7 @@ def main():
         
         # --- STEP 6: SAVE RESULTS & ARTIFACTS ---
         # Save predictions to CSV
-        df.to_csv('final_validation_results/predictions.csv', index=False)
+        df.to_csv('Physics Informed ML/final_validation_results/predictions.csv', index=False)
         
         # Save loss history for analysis
         loss_df = pd.DataFrame({
@@ -134,11 +134,11 @@ def main():
             'train_loss_scaled': train_scaled_losses,
             'val_loss_scaled': val_scaled_losses
         })
-        loss_df.to_csv('final_validation_results/loss_history.csv', index=False)
+        loss_df.to_csv('Physics Informed ML/final_validation_results/loss_history.csv', index=False)
         
         # Save scalers for future predictions
-        joblib.dump(scaler_X, 'final_validation_results/scaler_X.pkl')
-        joblib.dump(scaler_y, 'final_validation_results/scaler_y.pkl')
+        joblib.dump(scaler_X, 'Physics Informed ML/final_validation_results/scaler_X.pkl')
+        joblib.dump(scaler_y, 'Physics Informed ML/final_validation_results/scaler_y.pkl')
         
         # --- STEP 7: CREATE VISUALIZATIONS ---
         print("\n" + "=" * 80)
@@ -146,10 +146,10 @@ def main():
         print("=" * 80)
         
         # 1. Plot training/validation loss curves
-        plot_loss_history(train_scaled_losses, val_scaled_losses, 'final_validation_results')
+        plot_loss_history(train_scaled_losses, val_scaled_losses, 'Physics Informed ML/final_validation_results')
         
         # 2. Create scatter plots comparing predictions to actuals
-        create_visualizations(results, "data/Physics_Errors.csv", 'final_validation_results')
+        create_visualizations(results, "Physics Informed ML/data/Physics_Errors.csv", 'Physics Informed ML/final_validation_results')
         
         print(f"\n All results saved to 'final_validation_results/' directory")
         
