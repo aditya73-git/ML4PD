@@ -1,9 +1,37 @@
 # Object Detection Model
 ## Author: Youssef Ibrahim - go52xac - 03804537
 
+### Structure:
+
+- `train/images/`: Contains training images used to train the object detection models.
+
+- `train/labels/`: Contains YOLO-format label files for training images.
+
+- `val/images/`:Contains validation images used to evaluate the model during training.
+
+- `val/labels/`: Contains ground-truth labels for validation images.
+
+- `runs/`: This directory is automatically created by YOLO during training and inference.
+
+- `runs/detect/train/`: Results from training YOLOv8n
+
+- `runs/detect/train2/`: Results from training YOLOv8s
+
+- `data.yaml`: Defines the dataset configuration for YOLO.
+
+- `model1.py`: Trains YOLOv8n (Nano) model
+
+- `model2.py`: Trains YOLOv8s (Small) model
+
+- `analysis.py`: Used to validate and compare trained models.
+
+- `test.py`: Used for testing the trained model on new images.
+
+- `test2.py`: Created to modify `test.py` to be able to integrate with the Location Tracking.
+
 ### Important Note:
 - The labelled training data and validation data are removed from the repository for max. storage submission purposes.
-- To be able to run the object detection model, kindly download the folder named "train" and the folder named "val" from the group 15 Sharepoint drive and place both under Object Detection Model folder so that the path is as follows:
+- To be able to run the object detection model, kindly download the folder named `train` and the folder named `val` from the **group 15 Sharepoint drive** and place both under `Object Detection Model` folder so that the path is as follows:
 ```
 Object Detection Model/train
 ```
@@ -11,12 +39,13 @@ and
 ```
 Object Detection Model/val
 ```
+
 # Location Tracking
 ## Author: Lina Ghonim - go54sen - 03821777
 
 ### Important Note:
 - The synced videos are removed from the repository for max. storage submission purposes.
-- To be able to run the 'process_video.py' file under Location Tracking folder, kindly download the folder named "syncronized_videos" from the group 15 Sharepoint drive and place it under Location Tracking folder so that the path is as follows:
+- To be able to run the `linear_regression.py` file under Location Tracking folder, kindly download the folder named `syncronized_videos` from the group 15 Sharepoint drive and place it under `Location Tracking` folder so that the path is as follows:
 ```
 Location Tracking/syncronized_videos
 ```
