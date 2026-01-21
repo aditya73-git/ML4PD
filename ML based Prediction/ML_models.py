@@ -3,9 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Custom plotting functions for visualizing results and covariance evolution
-from Plots import plot_logo_validation_results, plot_realtime_axis_convergence, plot_feature_hist
-from Plots import plot_gp_correlation_matrix, animate_gp_covariance_evolution, plot_gp_posterior_grid
-
+from Plots import *
 # Scikit-Learn tools for building the ML pipeline
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
